@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb;authpb";
+
+service AuthService {
+  rpc Register(RegisterRequest)     returns (AuthResponse);
+  rpc Login(LoginRequest)           returns (AuthResponse);
+  rpc RefreshToken(RefreshRequest)  returns (AuthResponse);
+  rpc Logout(LogoutRequest)         returns (LogoutResponse);
+  rpc EnableTOTP(TOTPRequest)       returns (TOTPResponse);
+  rpc VerifyTOTP(VerifyTOTPRequest) returns (VerifyTOTPResponse);
+}
+
+message RegisterRequest {
+  string username   = 1;
+  string phone      = 2;
+  string password   = 3;
+  DeviceInfo device = 4;
+}
+
+message LoginRequest {
+  string phone      = 1;
+  string password   = 2;
+  DeviceInfo device = 3;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message LogoutRequest {
+  string session_id = 1;
+}
+
+message TOTPRequest {
+  string user_id = 1;
+}
+
+message VerifyTOTPRequest {
+  string user_id = 1;
+  string code    = 2;
+}
+
+message AuthResponse {
+  string access_token  = 1;
+  string refresh_token = 2;
+  UserInfo user        = 3;
+}
+
+message LogoutResponse {
+  bool success = 1;
+}
+
+message TOTPResponse {
+  string secret = 1;
+  string qr_url = 2;
+}
+
+message VerifyTOTPResponse {
+  bool success = 1;
+}
+
+message DeviceInfo {
+  string name       = 1;
+  string public_key = 2;
+}
+
+message UserInfo {
+  string id           = 1;
+  string username     = 2;
+  string phone        = 3;
+  string avatar_url   = 4;
+  bool   totp_enabled = 5;
+  string last_seen    = 6;
+  string created_at   = 7;
+}

@@ -1,0 +1,13 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: services/auth-svc/internal/delivery/grpc/pb
+    opt:
+      - paths=source_relative
+      - Mauth/v1/auth.proto=github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb
+
+  - remote: buf.build/grpc/go
+    out: services/auth-svc/internal/delivery/grpc/pb
+    opt:
+      - paths=source_relative
+      - Mauth/v1/auth.proto=github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb
