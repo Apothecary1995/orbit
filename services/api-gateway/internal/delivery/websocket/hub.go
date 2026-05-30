@@ -1,10 +1,14 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"sync"
+
+	authpb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
+	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
 )
 
 type Client struct {
@@ -18,6 +22,8 @@ type Hub struct {
 	mu          sync.RWMutex
 	clients     map[string]*Client
 	convMembers map[string][]string
+	authClient  authpb.AuthServiceClient
+	Push        *push.Manager
 }
 
 type OutgoingMessage struct {
@@ -25,10 +31,12 @@ type OutgoingMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
-func NewHub() *Hub {
+func NewHub(authClient authpb.AuthServiceClient, pushMgr *push.Manager) *Hub {
 	return &Hub{
 		clients:     make(map[string]*Client),
 		convMembers: make(map[string][]string),
+		authClient:  authClient,
+		Push:        pushMgr,
 	}
 }
 
@@ -71,6 +79,12 @@ func (h *Hub) Unregister(userID string) {
 	}
 	h.mu.Unlock()
 	log.Printf("WS ayrıldı: %s (toplam: %d)", userID, len(h.clients))
+
+	if h.authClient != nil {
+		go func() {
+			h.authClient.UpdateLastSeen(context.Background(), &authpb.UpdateLastSeenRequest{UserId: userID})
+		}()
+	}
 }
 
 // GetOnlineUserIDs returns a snapshot of currently connected user IDs, excluding the caller.
@@ -108,6 +122,9 @@ func (h *Hub) BroadcastToConv(convID string, message interface{}) {
 			default:
 				log.Printf("Mesaj gönderilemedi (kanal dolu): %s", userID)
 			}
+		} else if h.Push != nil {
+			// Kullanıcı çevrimdışı — push gönder
+			go h.Push.Send(userID, message)
 		}
 	}
 }

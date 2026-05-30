@@ -41,7 +41,8 @@ func main() {
 	msgRepo := repoPostgres.NewMessageRepository(pool)
 	convRepo := repoPostgres.NewConversationRepository(pool)
 	reactionRepo := repoPostgres.NewReactionRepository(pool)
-	chatUC := usecase.New(msgRepo, convRepo, reactionRepo, publisher)
+	storyRepo := repoPostgres.NewStoryRepository(pool)
+	chatUC := usecase.New(msgRepo, convRepo, reactionRepo, storyRepo, publisher)
 
 	lis, err := net.Listen("tcp", cfg.GRPC.Port)
 	if err != nil {

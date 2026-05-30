@@ -8,6 +8,13 @@ type Config struct {
 	ChatSvc GRPCServiceConfig
 	Redis   RedisConfig
 	JWT     JWTConfig
+	VAPID   VAPIDConfig
+}
+
+type VAPIDConfig struct {
+	PublicKey  string
+	PrivateKey string
+	Subject    string
 }
 
 type HTTPConfig struct {
@@ -44,6 +51,11 @@ func Load() Config {
 		},
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", "change-me-in-production"),
+		},
+		VAPID: VAPIDConfig{
+			PublicKey:  getEnv("VAPID_PUBLIC_KEY", "BGz_wLTdx8Uv2xdNP4m-gUJJmrPhVZBtQop5wGgnzfd-EZc4m4yAy1yVHSHE_fqSPPGSiZw5tmlY4NfDSdpKgw0"),
+			PrivateKey: getEnv("VAPID_PRIVATE_KEY", "48VYnoayICdgT4Qq9M2lmcR4np0OW9dWVhlQ5_Yyues"),
+			Subject:    getEnv("VAPID_SUBJECT", "mailto:admin@cengsta.local"),
 		},
 	}
 }

@@ -103,9 +103,17 @@ const Socket = {
         Store.setOnlineUsers(msg.payload.user_ids || []);
         this._emit('online_users', msg.payload);
         break;
-        case 'call_signal':
-  this._emit('call_signal', msg.payload);
-  break;
+      case 'message_edited':
+        Store.updateMessage(msg.payload.message_id, { content: msg.payload.content, edited_at: msg.payload.edited_at });
+        this._emit('message_edited', msg.payload);
+        break;
+      case 'message_deleted':
+        Store.updateMessage(msg.payload.message_id, { deleted: true });
+        this._emit('message_deleted', msg.payload);
+        break;
+      case 'call_signal':
+        this._emit('call_signal', msg.payload);
+        break;
     }
   },
 

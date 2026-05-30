@@ -40,4 +40,8 @@ type ChatUsecase interface {
 	GetConversations(ctx context.Context, userID string) ([]*entity.Conversation, error)
 	GetOrCreateDirect(ctx context.Context, userID1, userID2 string) (*entity.Conversation, error)
 	GetConversationMembers(ctx context.Context, convID string) ([]string, error)
+
+	// Hikaye işlemleri
+	CreateStory(ctx context.Context, userID, storyType, content, caption string) (*entity.Story, error)
+	GetStories(ctx context.Context, userIDs []string) ([]*entity.Story, error)
 }

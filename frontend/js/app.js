@@ -1,5 +1,47 @@
 // ── Cengsta Paradise — Ana uygulama ──────────────────────
 
+async function setupPushNotifications() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.register('/sw.js');
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+
+    const data = await Api.getVapidKey().catch(() => null);
+    if (!data?.public_key) return;
+
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      await Api.savePushSubscription(Store.user.id, existing.toJSON()).catch(() => {});
+      return;
+    }
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(data.public_key),
+    });
+    await Api.savePushSubscription(Store.user.id, sub.toJSON()).catch(() => {});
+  } catch(e) {
+    console.warn('Push kurulum hatası:', e);
+  }
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+// Service Worker mesajını dinle (bildirimden uygulama açıldığında)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'open_conversation' && event.data.conversation_id) {
+      openConversation(event.data.conversation_id);
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
   // ── Route'ları kaydet ────────────────────────────────
@@ -142,15 +184,39 @@ function updatePresenceIndicator(userId, online) {
   if (hdr && hdr.dataset.otherUserId === userId) {
     const el = document.getElementById('typing-indicator');
     if (el && !el.dataset.typing) {
-      el.textContent = online ? 'Çevrimiçi' : 'Çevrimdışı';
-      el.style.color = online ? 'var(--color-success)' : 'var(--text-muted)';
+      if (online) {
+        el.textContent = 'Çevrimiçi';
+        el.style.color = 'var(--color-success)';
+      } else {
+        el.textContent = 'son görülme yükleniyor...';
+        el.style.color = 'var(--text-muted)';
+        Api.get(`/auth/users/${userId}`).then(data => {
+          if (!data?.user?.last_seen) return;
+          el.textContent = formatLastSeen(data.user.last_seen);
+        }).catch(() => { el.textContent = 'Çevrimdışı'; });
+      }
     }
   }
+}
+
+function formatLastSeen(isoStr) {
+  if (!isoStr || isoStr === '0001-01-01 00:00:00 +0000 UTC') return 'Çevrimdışı';
+  const d = new Date(isoStr);
+  if (isNaN(d)) return 'Çevrimdışı';
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)  return 'Az önce görüldü';
+  if (mins < 60) return `${mins} dakika önce görüldü`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs} saat önce görüldü`;
+  const days = Math.floor(hrs / 24);
+  return `${days} gün önce görüldü`;
 }
 
 // ── Chat sayfası ──────────────────────────────────────
 function renderChat() {
   Socket.connect();
+  setupPushNotifications();
 
   document.getElementById('app').innerHTML = `
     <div class="sidebar">
@@ -168,6 +234,9 @@ function renderChat() {
         <input class="input" type="text" id="user-search-input" placeholder="Kullanıcı adı veya telefon ara..." />
         <div id="search-results" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
       </div>
+
+      <!-- Story halkaları -->
+      <div id="story-bar" style="display:flex;gap:12px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--border-color);scrollbar-width:none"></div>
 
       <div class="sidebar-search">
         <input class="input" type="text" placeholder="Ara..." id="search-input" />
@@ -352,6 +421,7 @@ async function loadConversations() {
     });
     Store.setConversations(convs);
     renderConvList(convs);
+    loadStoryBar(convs);
 
     // WS'e katılım bildir
     convs.forEach(conv => Socket.joinConv(conv.id));
@@ -414,7 +484,7 @@ async function openConversation(convId) {
   const convName   = conv?.name || 'Sohbet';
   const otherId    = conv?.type === 'direct' ? (conv.other_user_id || Store.getUserId(conv.name)) : null;
   const isOnline   = otherId ? Store.isOnline(otherId) : false;
-  const presenceTxt   = otherId ? (isOnline ? 'Çevrimiçi' : 'Çevrimdışı') : '';
+  const presenceTxt   = otherId ? (isOnline ? 'Çevrimiçi' : 'yükleniyor...') : '';
   const presenceColor = isOnline ? 'var(--color-success)' : 'var(--text-muted)';
 
   const chatArea = document.getElementById('chat-area');
@@ -511,6 +581,24 @@ async function openConversation(convId) {
   };
   Socket.on('typing', window._typingHandler);
 
+  Socket.off('message_edited', window._editHandler);
+  window._editHandler = ({ message_id, content, edited_at }) => applyMessageEdit(message_id, content, edited_at);
+  Socket.on('message_edited', window._editHandler);
+
+  Socket.off('message_deleted', window._deleteHandler);
+  window._deleteHandler = ({ message_id }) => applyMessageDelete(message_id);
+  Socket.on('message_deleted', window._deleteHandler);
+
+  // Çevrimdışıysa son görülmeyi çek
+  if (otherId && !isOnline) {
+    Api.get(`/auth/users/${otherId}`).then(data => {
+      const el = document.getElementById('typing-indicator');
+      if (el && !el.dataset.typing) {
+        el.textContent = formatLastSeen(data?.user?.last_seen);
+      }
+    }).catch(() => {});
+  }
+
   // Geçmiş mesajları yükle
   try {
     const data = await Api.getMessages(convId);
@@ -523,8 +611,23 @@ async function openConversation(convId) {
 async function sendMessage(convId, input) {
   const content = input.value.trim();
   if (!content) return;
-  input.value = '';
 
+  // Edit modu
+  if (input.dataset.editingId) {
+    const msgId   = input.dataset.editingId;
+    const editConvId = input.dataset.editingConvId || convId;
+    input.value = '';
+    delete input.dataset.editingId;
+    delete input.dataset.editingConvId;
+    document.getElementById('edit-preview')?.remove();
+    applyMessageEdit(msgId, content);
+    await Api.post(`/chat/conversations/${editConvId}/messages/${msgId}/edit`, {
+      user_id: Store.user.id, content,
+    }).catch(() => {});
+    return;
+  }
+
+  input.value = '';
   const replyToId = replyToMsg?.id || '';
   const replyToContent = replyToMsg?.content || '';
   clearReply();
@@ -583,7 +686,10 @@ function appendMessage(msg) {
   el.className = 'message-bubble ' + (isSent ? 'sent' : 'received');
   el.dataset.msgId = msg.id;
   el.dataset.content = msg.content;
-  el.innerHTML = replyHTML + content + '<span class="message-time">' + time + ' ' + statusIcon + '</span>';
+  const contentHtml = msg.deleted
+    ? '<em style="color:var(--text-muted)">Bu mesaj silindi.</em>'
+    : replyHTML + '<span class="msg-text">' + content + '</span>';
+  el.innerHTML = contentHtml + '<span class="message-time">' + time + ' ' + statusIcon + (msg.edited_at ? ' <span style="font-size:10px;color:var(--text-muted)">(düzenlendi)</span>' : '') + '</span>';
 
   // Emoji tepki butonu
   const reactBar = document.createElement('div');
@@ -593,6 +699,8 @@ function appendMessage(msg) {
   ).join('');
 
   const wrapper = document.createElement('div');
+  wrapper.className = 'message';
+  wrapper.dataset.id = msg.id;
   wrapper.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:' + (isSent ? 'flex-end' : 'flex-start') + ';margin-bottom:2px';
   wrapper.appendChild(el);
 
@@ -631,6 +739,7 @@ function showMessageMenu(e, msg, el) {
   menu.className = 'msg-menu';
   menu.style.cssText = 'position:fixed;left:' + e.clientX + 'px;top:' + e.clientY + 'px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:10px;padding:6px;z-index:1000;min-width:160px;box-shadow:var(--shadow-md)';
 
+  const isMine = msg.sender_id === Store.user?.id;
   const emojis = ['👍','❤️','😂','😮','😢','🔥'];
   menu.innerHTML = `
     <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-color);margin-bottom:4px">
@@ -638,29 +747,42 @@ function showMessageMenu(e, msg, el) {
     </div>
     <div class="menu-item" id="menu-reply" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">↩️ Yanıtla</div>
     <div class="menu-item" id="menu-copy" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">📋 Kopyala</div>
+    ${isMine && !msg.deleted ? `<div class="menu-item" id="menu-edit" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">✏️ Düzenle</div>` : ''}
+    ${isMine && !msg.deleted ? `<div class="menu-item" id="menu-delete" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;color:var(--color-danger)" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">🗑️ Sil</div>` : ''}
   `;
 
   document.body.appendChild(menu);
 
   // Emoji tepki
   menu.querySelectorAll('[data-emoji]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    menu.remove();
-    // Backend'e göndermeden direkt göster
-    addReactionToMessage(msg.id, btn.dataset.emoji, Store.user.id);
+    btn.addEventListener('click', () => {
+      menu.remove();
+      addReactionToMessage(msg.id, btn.dataset.emoji, Store.user.id);
+    });
   });
-});
 
   // Yanıtla
-  document.getElementById('menu-reply').addEventListener('click', () => {
+  document.getElementById('menu-reply')?.addEventListener('click', () => {
     menu.remove();
     setReplyTo(msg);
   });
 
   // Kopyala
-  document.getElementById('menu-copy').addEventListener('click', () => {
+  document.getElementById('menu-copy')?.addEventListener('click', () => {
     menu.remove();
     navigator.clipboard.writeText(msg.content).catch(() => {});
+  });
+
+  // Düzenle
+  document.getElementById('menu-edit')?.addEventListener('click', () => {
+    menu.remove();
+    startEditMessage(msg);
+  });
+
+  // Sil
+  document.getElementById('menu-delete')?.addEventListener('click', () => {
+    menu.remove();
+    deleteMessage(msg);
   });
 
   // Dışarı tıklayınca kapat
@@ -670,6 +792,61 @@ function showMessageMenu(e, msg, el) {
       document.removeEventListener('click', closeMenu);
     });
   }, 100);
+}
+
+function startEditMessage(msg) {
+  const input = document.getElementById('msg-input');
+  if (!input) return;
+  input.value = msg.content;
+  input.dataset.editingId = msg.id;
+  input.dataset.editingConvId = msg.conversation_id;
+  input.focus();
+
+  let bar = document.getElementById('edit-preview');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'edit-preview';
+    bar.style.cssText = 'padding:6px 12px;background:var(--bg-elevated);border-left:3px solid var(--color-primary);font-size:12px;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center';
+    input.parentNode.insertBefore(bar, input);
+  }
+  bar.innerHTML = `<span>Mesaj düzenleniyor</span><span id="cancel-edit" style="cursor:pointer;color:var(--color-danger)">✕</span>`;
+  document.getElementById('cancel-edit').addEventListener('click', () => {
+    input.value = '';
+    delete input.dataset.editingId;
+    delete input.dataset.editingConvId;
+    bar.remove();
+  });
+}
+
+async function deleteMessage(msg) {
+  if (!confirm('Mesajı silmek istiyor musun?')) return;
+  const convId = msg.conversation_id;
+  await Api.post(`/chat/conversations/${convId}/messages/${msg.id}/delete`, {
+    user_id: Store.user.id,
+  }).catch(() => {});
+  // UI güncelle (WS eventi de gelecek ama local da uygula)
+  applyMessageDelete(msg.id);
+}
+
+function applyMessageDelete(msgId) {
+  const wrapper = document.querySelector(`.message[data-id="${msgId}"]`);
+  if (!wrapper) return;
+  const bubble = wrapper.querySelector('.message-bubble');
+  if (!bubble) return;
+  const timeEl = bubble.querySelector('.message-time');
+  bubble.innerHTML = '<em style="color:var(--text-muted)">Bu mesaj silindi.</em>';
+  if (timeEl) bubble.appendChild(timeEl);
+}
+
+function applyMessageEdit(msgId, content, editedAt) {
+  const wrapper = document.querySelector(`.message[data-id="${msgId}"]`);
+  if (!wrapper) return;
+  const textEl = wrapper.querySelector('.msg-text');
+  if (textEl) textEl.textContent = content;
+  const timeEl = wrapper.querySelector('.message-time');
+  if (timeEl && !timeEl.querySelector('.edited-tag')) {
+    timeEl.insertAdjacentHTML('beforeend', ' <span class="edited-tag" style="font-size:10px;color:var(--text-muted)">(düzenlendi)</span>');
+  }
 }
 
 function addReactionToMessage(msgId, emoji, userId) {
@@ -726,15 +903,220 @@ function renderCalls() {
 }
 
 function renderStatus() {
-  document.getElementById('app').innerHTML = `
-    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">
-      <div style="text-align:center">
-        <div style="font-size:48px;margin-bottom:16px">🔵</div>
-        <div style="font-size:18px;font-weight:600;margin-bottom:8px">Durum</div>
-        <div style="font-size:13px">Yakında geliyor</div>
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div style="display:flex;flex-direction:column;height:100%;background:var(--bg-primary)">
+      <div style="padding:20px 24px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:12px">
+        <h2 style="margin:0;font-size:18px">Hikayeler</h2>
+        <button id="add-story-btn" class="btn btn-primary" style="margin-left:auto;font-size:13px;padding:6px 14px">+ Hikaye Ekle</button>
+      </div>
+
+      <div id="my-story" style="padding:16px 24px;border-bottom:1px solid var(--border-color)">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Benim Hikayem</div>
+        <div id="my-story-list" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:16px 24px">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Son Hikayeler</div>
+        <div id="stories-list" style="display:flex;gap:12px;flex-wrap:wrap"></div>
+      </div>
+
+      <!-- Hikaye oluşturma modalı -->
+      <div id="story-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2000;display:none;align-items:center;justify-content:center">
+        <div style="background:var(--bg-elevated);border-radius:16px;padding:24px;width:360px;box-shadow:var(--shadow-lg)">
+          <h3 style="margin:0 0 16px">Hikaye Paylaş</h3>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button class="story-type-btn active" data-type="text" style="flex:1;padding:8px;border:1px solid var(--color-primary);border-radius:8px;background:var(--color-primary);color:white;font-size:13px;cursor:pointer">Metin</button>
+            <button class="story-type-btn" data-type="image" style="flex:1;padding:8px;border:1px solid var(--border-color);border-radius:8px;background:transparent;color:var(--text-primary);font-size:13px;cursor:pointer">Görsel URL</button>
+          </div>
+          <textarea id="story-content" placeholder="Ne paylaşmak istiyorsun?" style="width:100%;height:100px;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-overlay);color:var(--text-primary);font-size:14px;resize:vertical;box-sizing:border-box"></textarea>
+          <input id="story-caption" type="text" placeholder="Başlık (isteğe bağlı)" style="width:100%;margin-top:8px;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-overlay);color:var(--text-primary);font-size:14px;box-sizing:border-box">
+          <div style="display:flex;gap:8px;margin-top:16px">
+            <button id="story-cancel" class="btn" style="flex:1">İptal</button>
+            <button id="story-submit" class="btn btn-primary" style="flex:1">Paylaş</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hikaye izleme modalı -->
+      <div id="story-viewer" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:3000;align-items:center;justify-content:center;flex-direction:column">
+        <button id="story-viewer-close" style="position:absolute;top:20px;right:20px;background:none;border:none;color:white;font-size:24px;cursor:pointer">✕</button>
+        <div id="story-viewer-content" style="max-width:500px;width:90%;text-align:center"></div>
+        <div id="story-viewer-meta" style="color:rgba(255,255,255,.7);font-size:13px;margin-top:12px"></div>
       </div>
     </div>
   `;
+
+  loadStories();
+
+  document.getElementById('add-story-btn').addEventListener('click', () => {
+    const modal = document.getElementById('story-modal');
+    modal.style.display = 'flex';
+  });
+
+  document.getElementById('story-cancel').addEventListener('click', () => {
+    document.getElementById('story-modal').style.display = 'none';
+  });
+
+  document.querySelectorAll('.story-type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.story-type-btn').forEach(b => {
+        b.style.background = 'transparent';
+        b.style.color = 'var(--text-primary)';
+        b.style.borderColor = 'var(--border-color)';
+        b.classList.remove('active');
+      });
+      btn.style.background = 'var(--color-primary)';
+      btn.style.color = 'white';
+      btn.style.borderColor = 'var(--color-primary)';
+      btn.classList.add('active');
+    });
+  });
+
+  document.getElementById('story-submit').addEventListener('click', async () => {
+    const type    = document.querySelector('.story-type-btn.active')?.dataset.type || 'text';
+    const content = document.getElementById('story-content').value.trim();
+    const caption = document.getElementById('story-caption').value.trim();
+    if (!content) return;
+
+    try {
+      await Api.post('/stories', { user_id: Store.user.id, type, content, caption });
+      document.getElementById('story-modal').style.display = 'none';
+      document.getElementById('story-content').value = '';
+      document.getElementById('story-caption').value = '';
+      loadStories();
+    } catch(e) {
+      alert('Hikaye paylaşılamadı: ' + (e.message || ''));
+    }
+  });
+
+  document.getElementById('story-viewer-close').addEventListener('click', () => {
+    document.getElementById('story-viewer').style.display = 'none';
+  });
+}
+
+async function loadStoryBar(convs) {
+  const bar = document.getElementById('story-bar');
+  if (!bar) return;
+
+  const ids = [Store.user.id, ...convs.filter(c => c.other_user_id).map(c => c.other_user_id)];
+  const uniqueIds = [...new Set(ids)].filter(Boolean);
+
+  const data = await Api.get(`/stories?user_ids=${uniqueIds.join(',')}`).catch(() => ({ stories: [] }));
+  const stories = data?.stories || [];
+  if (stories.length === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+
+  const byUser = {};
+  stories.forEach(s => { if (!byUser[s.user_id]) byUser[s.user_id] = []; byUser[s.user_id].push(s); });
+
+  bar.innerHTML = Object.entries(byUser).map(([uid, userStories]) => {
+    const name = uid === Store.user.id ? 'Ben' : (Store.getUsername(uid) || '?');
+    return `
+      <div class="story-ring" data-uid="${uid}" style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer">
+        <div style="width:44px;height:44px;border-radius:50%;border:2.5px solid var(--color-primary);padding:2px;box-sizing:border-box">
+          <div style="width:100%;height:100%;border-radius:50%;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600">${name[0].toUpperCase()}</div>
+        </div>
+        <div style="font-size:10px;color:var(--text-secondary);max-width:48px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</div>
+      </div>
+    `;
+  }).join('');
+
+  bar.querySelectorAll('.story-ring').forEach(el => {
+    el.addEventListener('click', () => {
+      const uid = el.dataset.uid;
+      openStoryViewer(byUser[uid] || []);
+    });
+  });
+}
+
+async function loadStories() {
+  const convUserIds = Store.conversations
+    .filter(c => c.type === 'direct' && c.other_user_id)
+    .map(c => c.other_user_id);
+  const allIds = [Store.user.id, ...convUserIds];
+  const uniqueIds = [...new Set(allIds)].filter(Boolean);
+
+  const data = await Api.get(`/stories?user_ids=${uniqueIds.join(',')}`).catch(() => ({ stories: [] }));
+  const stories = data?.stories || [];
+
+  const myStories  = stories.filter(s => s.user_id === Store.user.id);
+  const otherStories = stories.filter(s => s.user_id !== Store.user.id);
+
+  renderStoryBubbles('my-story-list',  myStories,  true);
+  renderStoryBubbles('stories-list',   otherStories, false);
+}
+
+function renderStoryBubbles(containerId, stories, isMine) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  if (stories.length === 0) {
+    container.innerHTML = `<div style="color:var(--text-muted);font-size:13px">${isMine ? 'Henüz hikaye yok' : 'Arkadaşlarının hikayesi yok'}</div>`;
+    return;
+  }
+
+  // UserID'ye göre grupla
+  const byUser = {};
+  stories.forEach(s => {
+    if (!byUser[s.user_id]) byUser[s.user_id] = [];
+    byUser[s.user_id].push(s);
+  });
+
+  container.innerHTML = Object.entries(byUser).map(([uid, userStories]) => {
+    const name = isMine ? (Store.user.username || 'Ben') : (Store.getUsername(uid) || uid.slice(0, 8));
+    const latest = userStories[0];
+    return `
+      <div class="story-bubble" data-user-id="${uid}" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer">
+        <div style="width:56px;height:56px;border-radius:50%;border:3px solid var(--color-primary);display:flex;align-items:center;justify-content:center;background:var(--bg-elevated);font-size:20px;overflow:hidden">
+          ${latest.type === 'image' ? `<img src="${latest.content}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : latest.content.slice(0,2)}
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center">${name}</div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.story-bubble').forEach(el => {
+    el.addEventListener('click', () => {
+      const uid = el.dataset.userId;
+      const userStories = stories.filter(s => s.user_id === uid);
+      openStoryViewer(userStories);
+    });
+  });
+}
+
+function openStoryViewer(stories) {
+  const viewer  = document.getElementById('story-viewer');
+  const content = document.getElementById('story-viewer-content');
+  const meta    = document.getElementById('story-viewer-meta');
+  if (!viewer || !content || stories.length === 0) return;
+
+  let idx = 0;
+  function show(i) {
+    const s = stories[i];
+    if (!s) { viewer.style.display = 'none'; return; }
+    const ago = formatLastSeen(s.created_at).replace(' görüldü', '');
+    meta.textContent = ago;
+    if (s.type === 'image') {
+      content.innerHTML = `
+        <img src="${s.content}" style="max-width:100%;max-height:70vh;border-radius:12px;object-fit:contain">
+        ${s.caption ? `<p style="color:white;margin-top:12px;font-size:16px">${s.caption}</p>` : ''}
+      `;
+    } else {
+      content.innerHTML = `
+        <div style="background:linear-gradient(135deg,var(--color-primary),var(--color-secondary,#7F77DD));padding:40px;border-radius:16px;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <p style="color:white;font-size:22px;font-weight:600;margin:0;word-break:break-word">${s.content}</p>
+          ${s.caption ? `<p style="color:rgba(255,255,255,.8);margin-top:12px;font-size:14px">${s.caption}</p>` : ''}
+        </div>
+      `;
+    }
+    if (stories.length > 1) {
+      setTimeout(() => { idx++; show(idx); }, 4000);
+    }
+  }
+
+  viewer.style.display = 'flex';
+  show(0);
 }
 
 function render404() {

@@ -14,6 +14,7 @@ import (
 	chatpb "github.com/Apothecary1995/cengsta-paradise/gen/chat/v1"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
+	pushpkg "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
 )
 
 type Handler struct {
@@ -32,6 +33,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/refresh", h.refresh)
 	mux.HandleFunc("/api/v1/auth/logout", h.logout)
 	mux.HandleFunc("/api/v1/auth/search", h.searchUser)
+	mux.HandleFunc("/api/v1/auth/users/", h.getUser)
+	mux.HandleFunc("/api/v1/notifications/subscribe", h.pushSubscribe)
+	mux.HandleFunc("/api/v1/notifications/vapid-public-key", h.vapidPublicKey)
+	mux.HandleFunc("/api/v1/stories", h.stories)
 	mux.HandleFunc("/api/v1/chat/conversations", h.conversations)
 	mux.HandleFunc("/api/v1/chat/conversations/", h.conversationDetail)
 	mux.HandleFunc("/api/v1/media/upload", h.uploadMedia)
@@ -242,22 +247,65 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// POST /messages/{msgId}/read
-	if len(parts) == 4 && parts[3] == "read" && r.Method == http.MethodPost {
+	// /messages/{msgId}/{action}
+	if len(parts) == 4 && r.Method == http.MethodPost {
 		msgID := parts[2]
-		var req struct {
-			UserID string `json:"user_id"`
+		action := parts[3]
+		switch action {
+		case "read":
+			var req struct {
+				UserID string `json:"user_id"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			_, err := h.clients.ChatService.MarkAsRead(r.Context(), &chatpb.MarkAsReadRequest{
+				MessageId: msgID,
+				UserId:    req.UserID,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		case "edit":
+			var req struct {
+				UserID  string `json:"user_id"`
+				Content string `json:"content"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			resp, err := h.clients.ChatService.EditMessage(r.Context(), &chatpb.EditMessageRequest{
+				MessageId: msgID,
+				UserId:    req.UserID,
+				Content:   req.Content,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			h.hub.BroadcastToConv(convID, map[string]interface{}{
+				"type": "message_edited", "message_id": msgID,
+				"content": req.Content, "edited_at": resp.EditedAt,
+			})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "edited_at": resp.EditedAt})
+		case "delete":
+			var req struct {
+				UserID string `json:"user_id"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			_, err := h.clients.ChatService.DeleteMessage(r.Context(), &chatpb.DeleteMessageRequest{
+				MessageId: msgID,
+				UserId:    req.UserID,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			h.hub.BroadcastToConv(convID, map[string]interface{}{
+				"type": "message_deleted", "message_id": msgID,
+			})
+			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		default:
+			writeError(w, http.StatusNotFound, "bulunamadı")
 		}
-		json.NewDecoder(r.Body).Decode(&req)
-		_, err := h.clients.ChatService.MarkAsRead(r.Context(), &chatpb.MarkAsReadRequest{
-			MessageId: msgID,
-			UserId:    req.UserID,
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 		return
 	}
 
@@ -348,6 +396,102 @@ func (h *Handler) searchUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"users": resp.Users,
 	})
+}
+
+func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "sadece GET")
+		return
+	}
+	userID := strings.TrimPrefix(r.URL.Path, "/api/v1/auth/users/")
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "user_id zorunlu")
+		return
+	}
+	resp, err := h.clients.AuthService.GetUser(r.Context(), &authpb.GetUserRequest{UserId: userID})
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"user": resp.User})
+}
+
+// GET  /api/v1/stories?user_ids=a,b,c   → aktif hikayeler
+// POST /api/v1/stories                  → hikaye oluştur
+func (h *Handler) stories(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		raw := r.URL.Query().Get("user_ids")
+		userIDs := strings.Split(raw, ",")
+		filtered := userIDs[:0]
+		for _, id := range userIDs {
+			if id != "" {
+				filtered = append(filtered, id)
+			}
+		}
+		resp, err := h.clients.ChatService.GetStories(r.Context(), &chatpb.GetStoriesRequest{UserIds: filtered})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"stories": resp.Stories})
+	case http.MethodPost:
+		var req struct {
+			UserID  string `json:"user_id"`
+			Type    string `json:"type"`
+			Content string `json:"content"`
+			Caption string `json:"caption"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" || req.Content == "" {
+			writeError(w, http.StatusBadRequest, "user_id ve content zorunlu")
+			return
+		}
+		resp, err := h.clients.ChatService.CreateStory(r.Context(), &chatpb.CreateStoryRequest{
+			UserId: req.UserID, Type: req.Type, Content: req.Content, Caption: req.Caption,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]interface{}{"story": resp.Story})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
+	}
+}
+
+func (h *Handler) vapidPublicKey(w http.ResponseWriter, r *http.Request) {
+	if h.hub.Push == nil {
+		writeError(w, http.StatusServiceUnavailable, "push devre dışı")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"public_key": h.hub.Push.PublicKey()})
+}
+
+func (h *Handler) pushSubscribe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
+		return
+	}
+	var req struct {
+		UserID       string      `json:"user_id"`
+		Subscription interface{} `json:"subscription"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.UserID == "" {
+		writeError(w, http.StatusBadRequest, "user_id ve subscription zorunlu")
+		return
+	}
+	if h.hub.Push == nil {
+		writeError(w, http.StatusServiceUnavailable, "push devre dışı")
+		return
+	}
+	raw, _ := json.Marshal(req.Subscription)
+	var sub pushpkg.Subscription
+	if err := json.Unmarshal(raw, &sub); err != nil {
+		writeError(w, http.StatusBadRequest, "geçersiz subscription")
+		return
+	}
+	h.hub.Push.Save(req.UserID, sub)
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
 func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {

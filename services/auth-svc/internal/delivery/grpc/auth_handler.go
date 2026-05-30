@@ -112,6 +112,29 @@ func (h *AuthHandler) SearchUser(ctx context.Context, req *pb.SearchUserRequest)
 	return &pb.SearchUserResponse{Users: pbUsers}, nil
 }
 
+func (h *AuthHandler) UpdateLastSeen(ctx context.Context, req *pb.UpdateLastSeenRequest) (*pb.UpdateLastSeenResponse, error) {
+	if err := h.authUC.UpdateLastSeen(ctx, req.UserId); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.UpdateLastSeenResponse{Success: true}, nil
+}
+
+func (h *AuthHandler) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
+	u, err := h.authUC.GetUser(ctx, req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	return &pb.GetUserResponse{User: &pb.UserInfo{
+		Id:          u.ID,
+		Username:    u.Username,
+		Phone:       u.Phone,
+		AvatarUrl:   u.AvatarURL,
+		TotpEnabled: u.TOTPEnabled,
+		LastSeen:    u.LastSeen.Format("2006-01-02T15:04:05Z07:00"),
+		CreatedAt:   u.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}}, nil
+}
+
 func toAuthResponse(out *domainUsecase.AuthOutput) *pb.AuthResponse {
 	return &pb.AuthResponse{
 		AccessToken:  out.AccessToken,

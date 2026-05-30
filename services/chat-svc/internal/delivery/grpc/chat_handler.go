@@ -127,3 +127,60 @@ func (h *ChatHandler) GetMembers(ctx context.Context, req *pb.GetMembersRequest)
 	}
 	return &pb.GetMembersResponse{MemberIds: members}, nil
 }
+
+func (h *ChatHandler) CreateStory(ctx context.Context, req *pb.CreateStoryRequest) (*pb.CreateStoryResponse, error) {
+	if req.UserId == "" || req.Content == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id ve content zorunlu")
+	}
+	storyType := req.Type
+	if storyType == "" {
+		storyType = "text"
+	}
+	story, err := h.chatUC.CreateStory(ctx, req.UserId, storyType, req.Content, req.Caption)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.CreateStoryResponse{Story: &pb.Story{
+		Id: story.ID, UserId: story.UserID, Type: story.Type,
+		Content: story.Content, Caption: story.Caption, Views: int32(story.Views),
+		ExpiresAt: story.ExpiresAt.Format(time.RFC3339),
+		CreatedAt: story.CreatedAt.Format(time.RFC3339),
+	}}, nil
+}
+
+func (h *ChatHandler) GetStories(ctx context.Context, req *pb.GetStoriesRequest) (*pb.GetStoriesResponse, error) {
+	stories, err := h.chatUC.GetStories(ctx, req.UserIds)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	var pbStories []*pb.Story
+	for _, s := range stories {
+		pbStories = append(pbStories, &pb.Story{
+			Id: s.ID, UserId: s.UserID, Type: s.Type,
+			Content: s.Content, Caption: s.Caption, Views: int32(s.Views),
+			ExpiresAt: s.ExpiresAt.Format(time.RFC3339),
+			CreatedAt: s.CreatedAt.Format(time.RFC3339),
+		})
+	}
+	return &pb.GetStoriesResponse{Stories: pbStories}, nil
+}
+
+func (h *ChatHandler) EditMessage(ctx context.Context, req *pb.EditMessageRequest) (*pb.EditMessageResponse, error) {
+	if req.MessageId == "" || req.UserId == "" || req.Content == "" {
+		return nil, status.Error(codes.InvalidArgument, "message_id, user_id ve content zorunlu")
+	}
+	if err := h.chatUC.EditMessage(ctx, req.MessageId, req.UserId, req.Content); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.EditMessageResponse{Success: true, EditedAt: time.Now().Format(time.RFC3339)}, nil
+}
+
+func (h *ChatHandler) DeleteMessage(ctx context.Context, req *pb.DeleteMessageRequest) (*pb.DeleteMessageResponse, error) {
+	if req.MessageId == "" || req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "message_id ve user_id zorunlu")
+	}
+	if err := h.chatUC.DeleteMessage(ctx, req.MessageId, req.UserId); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.DeleteMessageResponse{Success: true}, nil
+}

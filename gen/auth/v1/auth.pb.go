@@ -621,6 +621,182 @@ func (x *SearchUserResponse) GetUsers() []*UserInfo {
 	return nil
 }
 
+type UpdateLastSeenRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateLastSeenRequest) Reset() {
+	*x = UpdateLastSeenRequest{}
+	mi := &file_auth_v1_auth_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateLastSeenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateLastSeenRequest) ProtoMessage() {}
+
+func (x *UpdateLastSeenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateLastSeenRequest.ProtoReflect.Descriptor instead.
+func (*UpdateLastSeenRequest) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *UpdateLastSeenRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type UpdateLastSeenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateLastSeenResponse) Reset() {
+	*x = UpdateLastSeenResponse{}
+	mi := &file_auth_v1_auth_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateLastSeenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateLastSeenResponse) ProtoMessage() {}
+
+func (x *UpdateLastSeenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateLastSeenResponse.ProtoReflect.Descriptor instead.
+func (*UpdateLastSeenResponse) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *UpdateLastSeenResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+type GetUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserRequest) Reset() {
+	*x = GetUserRequest{}
+	mi := &file_auth_v1_auth_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserRequest) ProtoMessage() {}
+
+func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserRequest.ProtoReflect.Descriptor instead.
+func (*GetUserRequest) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetUserRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type GetUserResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	User          *UserInfo              `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserResponse) Reset() {
+	*x = GetUserResponse{}
+	mi := &file_auth_v1_auth_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserResponse) ProtoMessage() {}
+
+func (x *GetUserResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_auth_v1_auth_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserResponse.ProtoReflect.Descriptor instead.
+func (*GetUserResponse) Descriptor() ([]byte, []int) {
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *GetUserResponse) GetUser() *UserInfo {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
 type DeviceInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -631,7 +807,7 @@ type DeviceInfo struct {
 
 func (x *DeviceInfo) Reset() {
 	*x = DeviceInfo{}
-	mi := &file_auth_v1_auth_proto_msgTypes[12]
+	mi := &file_auth_v1_auth_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -643,7 +819,7 @@ func (x *DeviceInfo) String() string {
 func (*DeviceInfo) ProtoMessage() {}
 
 func (x *DeviceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_v1_auth_proto_msgTypes[12]
+	mi := &file_auth_v1_auth_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -656,7 +832,7 @@ func (x *DeviceInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceInfo.ProtoReflect.Descriptor instead.
 func (*DeviceInfo) Descriptor() ([]byte, []int) {
-	return file_auth_v1_auth_proto_rawDescGZIP(), []int{12}
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeviceInfo) GetName() string {
@@ -688,7 +864,7 @@ type UserInfo struct {
 
 func (x *UserInfo) Reset() {
 	*x = UserInfo{}
-	mi := &file_auth_v1_auth_proto_msgTypes[13]
+	mi := &file_auth_v1_auth_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -700,7 +876,7 @@ func (x *UserInfo) String() string {
 func (*UserInfo) ProtoMessage() {}
 
 func (x *UserInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_v1_auth_proto_msgTypes[13]
+	mi := &file_auth_v1_auth_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -713,7 +889,7 @@ func (x *UserInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserInfo.ProtoReflect.Descriptor instead.
 func (*UserInfo) Descriptor() ([]byte, []int) {
-	return file_auth_v1_auth_proto_rawDescGZIP(), []int{13}
+	return file_auth_v1_auth_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UserInfo) GetId() string {
@@ -803,7 +979,15 @@ const file_auth_v1_auth_proto_rawDesc = "" +
 	"\x12VerifyTOTPResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"=\n" +
 	"\x12SearchUserResponse\x12'\n" +
-	"\x05users\x18\x01 \x03(\v2\x11.auth.v1.UserInfoR\x05users\"?\n" +
+	"\x05users\x18\x01 \x03(\v2\x11.auth.v1.UserInfoR\x05users\"0\n" +
+	"\x15UpdateLastSeenRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"2\n" +
+	"\x16UpdateLastSeenResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\")\n" +
+	"\x0eGetUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"8\n" +
+	"\x0fGetUserResponse\x12%\n" +
+	"\x04user\x18\x01 \x01(\v2\x11.auth.v1.UserInfoR\x04user\"?\n" +
 	"\n" +
 	"DeviceInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
@@ -818,7 +1002,7 @@ const file_auth_v1_auth_proto_rawDesc = "" +
 	"\ftotp_enabled\x18\x05 \x01(\bR\vtotpEnabled\x12\x1b\n" +
 	"\tlast_seen\x18\x06 \x01(\tR\blastSeen\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\a \x01(\tR\tcreatedAt2\xc5\x03\n" +
+	"created_at\x18\a \x01(\tR\tcreatedAt2\xd6\x04\n" +
 	"\vAuthService\x12;\n" +
 	"\bRegister\x12\x18.auth.v1.RegisterRequest\x1a\x15.auth.v1.AuthResponse\x125\n" +
 	"\x05Login\x12\x15.auth.v1.LoginRequest\x1a\x15.auth.v1.AuthResponse\x12>\n" +
@@ -829,7 +1013,9 @@ const file_auth_v1_auth_proto_rawDesc = "" +
 	"\n" +
 	"VerifyTOTP\x12\x1a.auth.v1.VerifyTOTPRequest\x1a\x1b.auth.v1.VerifyTOTPResponse\x12E\n" +
 	"\n" +
-	"SearchUser\x12\x1a.auth.v1.SearchUserRequest\x1a\x1b.auth.v1.SearchUserResponseB?Z=github.com/Apothecary1995/cengsta-paradise/gen/auth/v1;authpbb\x06proto3"
+	"SearchUser\x12\x1a.auth.v1.SearchUserRequest\x1a\x1b.auth.v1.SearchUserResponse\x12Q\n" +
+	"\x0eUpdateLastSeen\x12\x1e.auth.v1.UpdateLastSeenRequest\x1a\x1f.auth.v1.UpdateLastSeenResponse\x12<\n" +
+	"\aGetUser\x12\x17.auth.v1.GetUserRequest\x1a\x18.auth.v1.GetUserResponseB?Z=github.com/Apothecary1995/cengsta-paradise/gen/auth/v1;authpbb\x06proto3"
 
 var (
 	file_auth_v1_auth_proto_rawDescOnce sync.Once
@@ -843,47 +1029,56 @@ func file_auth_v1_auth_proto_rawDescGZIP() []byte {
 	return file_auth_v1_auth_proto_rawDescData
 }
 
-var file_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_auth_v1_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_auth_v1_auth_proto_goTypes = []any{
-	(*RegisterRequest)(nil),    // 0: auth.v1.RegisterRequest
-	(*LoginRequest)(nil),       // 1: auth.v1.LoginRequest
-	(*RefreshRequest)(nil),     // 2: auth.v1.RefreshRequest
-	(*LogoutRequest)(nil),      // 3: auth.v1.LogoutRequest
-	(*TOTPRequest)(nil),        // 4: auth.v1.TOTPRequest
-	(*VerifyTOTPRequest)(nil),  // 5: auth.v1.VerifyTOTPRequest
-	(*SearchUserRequest)(nil),  // 6: auth.v1.SearchUserRequest
-	(*AuthResponse)(nil),       // 7: auth.v1.AuthResponse
-	(*LogoutResponse)(nil),     // 8: auth.v1.LogoutResponse
-	(*TOTPResponse)(nil),       // 9: auth.v1.TOTPResponse
-	(*VerifyTOTPResponse)(nil), // 10: auth.v1.VerifyTOTPResponse
-	(*SearchUserResponse)(nil), // 11: auth.v1.SearchUserResponse
-	(*DeviceInfo)(nil),         // 12: auth.v1.DeviceInfo
-	(*UserInfo)(nil),           // 13: auth.v1.UserInfo
+	(*RegisterRequest)(nil),        // 0: auth.v1.RegisterRequest
+	(*LoginRequest)(nil),           // 1: auth.v1.LoginRequest
+	(*RefreshRequest)(nil),         // 2: auth.v1.RefreshRequest
+	(*LogoutRequest)(nil),          // 3: auth.v1.LogoutRequest
+	(*TOTPRequest)(nil),            // 4: auth.v1.TOTPRequest
+	(*VerifyTOTPRequest)(nil),      // 5: auth.v1.VerifyTOTPRequest
+	(*SearchUserRequest)(nil),      // 6: auth.v1.SearchUserRequest
+	(*AuthResponse)(nil),           // 7: auth.v1.AuthResponse
+	(*LogoutResponse)(nil),         // 8: auth.v1.LogoutResponse
+	(*TOTPResponse)(nil),           // 9: auth.v1.TOTPResponse
+	(*VerifyTOTPResponse)(nil),     // 10: auth.v1.VerifyTOTPResponse
+	(*SearchUserResponse)(nil),     // 11: auth.v1.SearchUserResponse
+	(*UpdateLastSeenRequest)(nil),  // 12: auth.v1.UpdateLastSeenRequest
+	(*UpdateLastSeenResponse)(nil), // 13: auth.v1.UpdateLastSeenResponse
+	(*GetUserRequest)(nil),         // 14: auth.v1.GetUserRequest
+	(*GetUserResponse)(nil),        // 15: auth.v1.GetUserResponse
+	(*DeviceInfo)(nil),             // 16: auth.v1.DeviceInfo
+	(*UserInfo)(nil),               // 17: auth.v1.UserInfo
 }
 var file_auth_v1_auth_proto_depIdxs = []int32{
-	12, // 0: auth.v1.RegisterRequest.device:type_name -> auth.v1.DeviceInfo
-	12, // 1: auth.v1.LoginRequest.device:type_name -> auth.v1.DeviceInfo
-	13, // 2: auth.v1.AuthResponse.user:type_name -> auth.v1.UserInfo
-	13, // 3: auth.v1.SearchUserResponse.users:type_name -> auth.v1.UserInfo
-	0,  // 4: auth.v1.AuthService.Register:input_type -> auth.v1.RegisterRequest
-	1,  // 5: auth.v1.AuthService.Login:input_type -> auth.v1.LoginRequest
-	2,  // 6: auth.v1.AuthService.RefreshToken:input_type -> auth.v1.RefreshRequest
-	3,  // 7: auth.v1.AuthService.Logout:input_type -> auth.v1.LogoutRequest
-	4,  // 8: auth.v1.AuthService.EnableTOTP:input_type -> auth.v1.TOTPRequest
-	5,  // 9: auth.v1.AuthService.VerifyTOTP:input_type -> auth.v1.VerifyTOTPRequest
-	6,  // 10: auth.v1.AuthService.SearchUser:input_type -> auth.v1.SearchUserRequest
-	7,  // 11: auth.v1.AuthService.Register:output_type -> auth.v1.AuthResponse
-	7,  // 12: auth.v1.AuthService.Login:output_type -> auth.v1.AuthResponse
-	7,  // 13: auth.v1.AuthService.RefreshToken:output_type -> auth.v1.AuthResponse
-	8,  // 14: auth.v1.AuthService.Logout:output_type -> auth.v1.LogoutResponse
-	9,  // 15: auth.v1.AuthService.EnableTOTP:output_type -> auth.v1.TOTPResponse
-	10, // 16: auth.v1.AuthService.VerifyTOTP:output_type -> auth.v1.VerifyTOTPResponse
-	11, // 17: auth.v1.AuthService.SearchUser:output_type -> auth.v1.SearchUserResponse
-	11, // [11:18] is the sub-list for method output_type
-	4,  // [4:11] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	16, // 0: auth.v1.RegisterRequest.device:type_name -> auth.v1.DeviceInfo
+	16, // 1: auth.v1.LoginRequest.device:type_name -> auth.v1.DeviceInfo
+	17, // 2: auth.v1.AuthResponse.user:type_name -> auth.v1.UserInfo
+	17, // 3: auth.v1.SearchUserResponse.users:type_name -> auth.v1.UserInfo
+	17, // 4: auth.v1.GetUserResponse.user:type_name -> auth.v1.UserInfo
+	0,  // 5: auth.v1.AuthService.Register:input_type -> auth.v1.RegisterRequest
+	1,  // 6: auth.v1.AuthService.Login:input_type -> auth.v1.LoginRequest
+	2,  // 7: auth.v1.AuthService.RefreshToken:input_type -> auth.v1.RefreshRequest
+	3,  // 8: auth.v1.AuthService.Logout:input_type -> auth.v1.LogoutRequest
+	4,  // 9: auth.v1.AuthService.EnableTOTP:input_type -> auth.v1.TOTPRequest
+	5,  // 10: auth.v1.AuthService.VerifyTOTP:input_type -> auth.v1.VerifyTOTPRequest
+	6,  // 11: auth.v1.AuthService.SearchUser:input_type -> auth.v1.SearchUserRequest
+	12, // 12: auth.v1.AuthService.UpdateLastSeen:input_type -> auth.v1.UpdateLastSeenRequest
+	14, // 13: auth.v1.AuthService.GetUser:input_type -> auth.v1.GetUserRequest
+	7,  // 14: auth.v1.AuthService.Register:output_type -> auth.v1.AuthResponse
+	7,  // 15: auth.v1.AuthService.Login:output_type -> auth.v1.AuthResponse
+	7,  // 16: auth.v1.AuthService.RefreshToken:output_type -> auth.v1.AuthResponse
+	8,  // 17: auth.v1.AuthService.Logout:output_type -> auth.v1.LogoutResponse
+	9,  // 18: auth.v1.AuthService.EnableTOTP:output_type -> auth.v1.TOTPResponse
+	10, // 19: auth.v1.AuthService.VerifyTOTP:output_type -> auth.v1.VerifyTOTPResponse
+	11, // 20: auth.v1.AuthService.SearchUser:output_type -> auth.v1.SearchUserResponse
+	13, // 21: auth.v1.AuthService.UpdateLastSeen:output_type -> auth.v1.UpdateLastSeenResponse
+	15, // 22: auth.v1.AuthService.GetUser:output_type -> auth.v1.GetUserResponse
+	14, // [14:23] is the sub-list for method output_type
+	5,  // [5:14] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_auth_v1_auth_proto_init() }
@@ -897,7 +1092,7 @@ func file_auth_v1_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_auth_v1_auth_proto_rawDesc), len(file_auth_v1_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

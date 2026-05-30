@@ -212,3 +212,11 @@ func (a *authUsecase) createSession(ctx context.Context, user *entity.User, devi
 func (a *authUsecase) SearchUser(ctx context.Context, query string) ([]*entity.User, error) {
 	return a.userRepo.Search(ctx, query)
 }
+
+func (a *authUsecase) UpdateLastSeen(ctx context.Context, userID string) error {
+	return a.userRepo.UpdateLastSeen(ctx, userID)
+}
+
+func (a *authUsecase) GetUser(ctx context.Context, userID string) (*entity.User, error) {
+	return a.userRepo.GetByID(ctx, userID)
+}

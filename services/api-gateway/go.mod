@@ -4,10 +4,13 @@ go 1.26.2
 
 require (
 	github.com/Apothecary1995/cengsta-paradise/gen v0.0.0
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	google.golang.org/grpc v1.81.1
 )
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect

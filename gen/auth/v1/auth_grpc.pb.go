@@ -19,13 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuthService_Register_FullMethodName     = "/auth.v1.AuthService/Register"
-	AuthService_Login_FullMethodName        = "/auth.v1.AuthService/Login"
-	AuthService_RefreshToken_FullMethodName = "/auth.v1.AuthService/RefreshToken"
-	AuthService_Logout_FullMethodName       = "/auth.v1.AuthService/Logout"
-	AuthService_EnableTOTP_FullMethodName   = "/auth.v1.AuthService/EnableTOTP"
-	AuthService_VerifyTOTP_FullMethodName   = "/auth.v1.AuthService/VerifyTOTP"
-	AuthService_SearchUser_FullMethodName   = "/auth.v1.AuthService/SearchUser"
+	AuthService_Register_FullMethodName       = "/auth.v1.AuthService/Register"
+	AuthService_Login_FullMethodName          = "/auth.v1.AuthService/Login"
+	AuthService_RefreshToken_FullMethodName   = "/auth.v1.AuthService/RefreshToken"
+	AuthService_Logout_FullMethodName         = "/auth.v1.AuthService/Logout"
+	AuthService_EnableTOTP_FullMethodName     = "/auth.v1.AuthService/EnableTOTP"
+	AuthService_VerifyTOTP_FullMethodName     = "/auth.v1.AuthService/VerifyTOTP"
+	AuthService_SearchUser_FullMethodName     = "/auth.v1.AuthService/SearchUser"
+	AuthService_UpdateLastSeen_FullMethodName = "/auth.v1.AuthService/UpdateLastSeen"
+	AuthService_GetUser_FullMethodName        = "/auth.v1.AuthService/GetUser"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -39,6 +41,8 @@ type AuthServiceClient interface {
 	EnableTOTP(ctx context.Context, in *TOTPRequest, opts ...grpc.CallOption) (*TOTPResponse, error)
 	VerifyTOTP(ctx context.Context, in *VerifyTOTPRequest, opts ...grpc.CallOption) (*VerifyTOTPResponse, error)
 	SearchUser(ctx context.Context, in *SearchUserRequest, opts ...grpc.CallOption) (*SearchUserResponse, error)
+	UpdateLastSeen(ctx context.Context, in *UpdateLastSeenRequest, opts ...grpc.CallOption) (*UpdateLastSeenResponse, error)
+	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
 }
 
 type authServiceClient struct {
@@ -119,6 +123,26 @@ func (c *authServiceClient) SearchUser(ctx context.Context, in *SearchUserReques
 	return out, nil
 }
 
+func (c *authServiceClient) UpdateLastSeen(ctx context.Context, in *UpdateLastSeenRequest, opts ...grpc.CallOption) (*UpdateLastSeenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateLastSeenResponse)
+	err := c.cc.Invoke(ctx, AuthService_UpdateLastSeen_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserResponse)
+	err := c.cc.Invoke(ctx, AuthService_GetUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
@@ -130,6 +154,8 @@ type AuthServiceServer interface {
 	EnableTOTP(context.Context, *TOTPRequest) (*TOTPResponse, error)
 	VerifyTOTP(context.Context, *VerifyTOTPRequest) (*VerifyTOTPResponse, error)
 	SearchUser(context.Context, *SearchUserRequest) (*SearchUserResponse, error)
+	UpdateLastSeen(context.Context, *UpdateLastSeenRequest) (*UpdateLastSeenResponse, error)
+	GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }
 
@@ -160,6 +186,12 @@ func (UnimplementedAuthServiceServer) VerifyTOTP(context.Context, *VerifyTOTPReq
 }
 func (UnimplementedAuthServiceServer) SearchUser(context.Context, *SearchUserRequest) (*SearchUserResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SearchUser not implemented")
+}
+func (UnimplementedAuthServiceServer) UpdateLastSeen(context.Context, *UpdateLastSeenRequest) (*UpdateLastSeenResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateLastSeen not implemented")
+}
+func (UnimplementedAuthServiceServer) GetUser(context.Context, *GetUserRequest) (*GetUserResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUser not implemented")
 }
 func (UnimplementedAuthServiceServer) mustEmbedUnimplementedAuthServiceServer() {}
 func (UnimplementedAuthServiceServer) testEmbeddedByValue()                     {}
@@ -308,6 +340,42 @@ func _AuthService_SearchUser_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_UpdateLastSeen_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateLastSeenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).UpdateLastSeen(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_UpdateLastSeen_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).UpdateLastSeen(ctx, req.(*UpdateLastSeenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetUser(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -342,6 +410,14 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SearchUser",
 			Handler:    _AuthService_SearchUser_Handler,
+		},
+		{
+			MethodName: "UpdateLastSeen",
+			Handler:    _AuthService_UpdateLastSeen_Handler,
+		},
+		{
+			MethodName: "GetUser",
+			Handler:    _AuthService_GetUser_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

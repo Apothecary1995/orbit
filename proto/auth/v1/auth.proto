@@ -10,6 +10,8 @@ service AuthService {
   rpc EnableTOTP(TOTPRequest)         returns (TOTPResponse);
   rpc VerifyTOTP(VerifyTOTPRequest)   returns (VerifyTOTPResponse);
   rpc SearchUser(SearchUserRequest)   returns (SearchUserResponse);
+  rpc UpdateLastSeen(UpdateLastSeenRequest) returns (UpdateLastSeenResponse);
+  rpc GetUser(GetUserRequest)         returns (GetUserResponse);
 }
 
 message RegisterRequest {
@@ -38,6 +40,11 @@ message LogoutResponse        { bool success = 1; }
 message TOTPResponse          { string secret = 1; string qr_url = 2; }
 message VerifyTOTPResponse    { bool success = 1; }
 message SearchUserResponse    { repeated UserInfo users = 1; }
+
+message UpdateLastSeenRequest  { string user_id = 1; }
+message UpdateLastSeenResponse { bool success = 1; }
+message GetUserRequest         { string user_id = 1; }
+message GetUserResponse        { UserInfo user = 1; }
 
 message DeviceInfo { string name = 1; string public_key = 2; }
 message UserInfo {

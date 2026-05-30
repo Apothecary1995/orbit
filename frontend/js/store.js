@@ -78,6 +78,13 @@ const Store = {
     this._state.messages[convId] = messages;
   },
 
+  updateMessage(messageId, patch) {
+    for (const msgs of Object.values(this._state.messages)) {
+      const msg = msgs.find(m => m.id === messageId);
+      if (msg) { Object.assign(msg, patch); return; }
+    }
+  },
+
   // ── Online durumu ──────────────────────────────────────
   setOnline(userID)        { this._state.onlineUsers.add(userID); },
   setOffline(userID)       { this._state.onlineUsers.delete(userID); },

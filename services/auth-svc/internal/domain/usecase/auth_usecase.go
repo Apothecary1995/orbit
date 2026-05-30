@@ -38,4 +38,6 @@ type AuthUsecase interface {
 	EnableTOTP(ctx context.Context, userID string) (secret string, qrURL string, err error)
 	VerifyTOTP(ctx context.Context, userID string, code string) error
 	SearchUser(ctx context.Context, query string) ([]*entity.User, error)
+	UpdateLastSeen(ctx context.Context, userID string) error
+	GetUser(ctx context.Context, userID string) (*entity.User, error)
 }

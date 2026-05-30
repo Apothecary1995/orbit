@@ -111,4 +111,12 @@ const Api = {
       member_ids: memberIds,
     });
   },
+
+  async getVapidKey() {
+    return this.get('/notifications/vapid-public-key');
+  },
+
+  async savePushSubscription(userId, subscription) {
+    return this.post('/notifications/subscribe', { user_id: userId, subscription });
+  },
 };

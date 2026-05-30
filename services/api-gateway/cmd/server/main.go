@@ -11,6 +11,7 @@ import (
 	httphandler "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/http"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
+	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
 )
 
 func main() {
@@ -22,7 +23,8 @@ func main() {
 	}
 	defer clients.Close()
 
-	hub := websocket.NewHub()
+	pushMgr := push.NewManager(cfg.VAPID.PublicKey, cfg.VAPID.PrivateKey, cfg.VAPID.Subject)
+	hub := websocket.NewHub(clients.AuthService, pushMgr)
 	mux := http.NewServeMux()
 
 	handler := httphandler.NewHandler(clients, hub)

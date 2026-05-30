@@ -32,3 +32,9 @@ type ReactionRepository interface {
 	Remove(ctx context.Context, messageID, userID, emoji string) error
 	ListByMessage(ctx context.Context, messageID string) ([]*entity.MessageReaction, error)
 }
+
+// StoryRepository hikaye DB işlemleri.
+type StoryRepository interface {
+	Create(ctx context.Context, story *entity.Story) error
+	ListByUserIDs(ctx context.Context, userIDs []string) ([]*entity.Story, error)
+}

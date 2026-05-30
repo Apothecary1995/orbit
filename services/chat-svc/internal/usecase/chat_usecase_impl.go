@@ -17,6 +17,7 @@ type chatUsecase struct {
 	msgRepo      repository.MessageRepository
 	convRepo     repository.ConversationRepository
 	reactionRepo repository.ReactionRepository
+	storyRepo    repository.StoryRepository
 	publisher    Publisher // Redis pub/sub publisher interface
 }
 
@@ -31,12 +32,14 @@ func New(
 	msgRepo repository.MessageRepository,
 	convRepo repository.ConversationRepository,
 	reactionRepo repository.ReactionRepository,
+	storyRepo repository.StoryRepository,
 	publisher Publisher,
 ) domainUsecase.ChatUsecase {
 	return &chatUsecase{
 		msgRepo:      msgRepo,
 		convRepo:     convRepo,
 		reactionRepo: reactionRepo,
+		storyRepo:    storyRepo,
 		publisher:    publisher,
 	}
 }
@@ -186,4 +189,26 @@ func (c *chatUsecase) GetConversationMembers(ctx context.Context, convID string)
 		ids = append(ids, m.UserID)
 	}
 	return ids, nil
+}
+
+func (c *chatUsecase) CreateStory(ctx context.Context, userID, storyType, content, caption string) (*entity.Story, error) {
+	id := make([]byte, 16)
+	rand.Read(id)
+	story := &entity.Story{
+		ID:        hex.EncodeToString(id),
+		UserID:    userID,
+		Type:      storyType,
+		Content:   content,
+		Caption:   caption,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+		CreatedAt: time.Now(),
+	}
+	if err := c.storyRepo.Create(ctx, story); err != nil {
+		return nil, fmt.Errorf("hikaye kaydedilemedi: %w", err)
+	}
+	return story, nil
+}
+
+func (c *chatUsecase) GetStories(ctx context.Context, userIDs []string) ([]*entity.Story, error) {
+	return c.storyRepo.ListByUserIDs(ctx, userIDs)
 }
