@@ -183,12 +183,17 @@ function renderChat() {
 
 async function loadConversations() {
   try {
+    const userId = Store.user && Store.user.id;
+    if (!userId) {
+      console.error('User ID yok:', Store.user);
+      return;
+    }
     const data = await Api.getConversations();
     const convs = data?.conversations || [];
     Store.setConversations(convs);
     renderConvList(convs);
-  } catch {
-    // Chat endpoint'leri henüz hazır değil — boş göster
+  } catch(e) {
+    console.error('Conversations yüklenemedi:', e);
     renderConvList([]);
   }
 }

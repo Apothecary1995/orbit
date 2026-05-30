@@ -87,8 +87,10 @@ const Api = {
 
   // ── Chat endpoint'leri ─────────────────────────────────
   async getConversations() {
-    return this.get('/chat/conversations');
-  },
+  const userId = Store.user ? Store.user.id : null;
+  if (!userId) throw new Error('user_id zorunlu');
+  return this.get(`/chat/conversations?user_id=${userId}`);
+},
 
   async getMessages(convId, limit = 50, offset = 0) {
     return this.get(`/chat/conversations/${convId}/messages?limit=${limit}&offset=${offset}`);
