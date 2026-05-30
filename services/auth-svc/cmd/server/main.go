@@ -8,9 +8,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	authpb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/config"
 	grpchandler "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc"
-	authpb "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb/auth/v1"
 	infraDB "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/infrastructure/db"
 	repoPostgres "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/repository/postgres"
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/usecase"

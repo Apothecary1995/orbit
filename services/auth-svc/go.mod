@@ -3,10 +3,10 @@ module github.com/Apothecary1995/cengsta-paradise/services/auth-svc
 go 1.26.2
 
 require (
+	github.com/Apothecary1995/cengsta-paradise/gen v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	google.golang.org/grpc v1.81.1
-	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -18,4 +18,7 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/Apothecary1995/cengsta-paradise/gen => ../../gen

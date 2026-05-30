@@ -1,78 +1,78 @@
 package main
 
 import (
-	"context"
 	"log"
-	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/config"
-	grpchandler "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc"
-	authpb "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb/auth/v1"
-	infraDB "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/infrastructure/db"
-	repoPostgres "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/repository/postgres"
-	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/usecase"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
+	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/config"
+	httphandler "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/http"
+	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
+	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
 )
 
 func main() {
 	cfg := config.Load()
 
-	ctx := context.Background()
-	pool, err := infraDB.New(ctx, infraDB.Config{
-		Host:     cfg.DB.Host,
-		Port:     cfg.DB.Port,
-		User:     cfg.DB.User,
-		Password: cfg.DB.Password,
-		DBName:   cfg.DB.Name,
-	})
+	// gRPC client bağlantıları
+	clients, err := grpcclient.New(cfg.AuthSvc.Addr)
 	if err != nil {
-		log.Fatalf("PostgreSQL bağlantısı kurulamadı: %v", err)
+		log.Fatalf("gRPC client oluşturulamadı: %v", err)
 	}
-	defer pool.Close()
-	log.Println("PostgreSQL bağlantısı kuruldu")
+	defer clients.Close()
 
-	userRepo := repoPostgres.NewUserRepository(pool)
-	deviceRepo := repoPostgres.NewDeviceRepository(pool)
-	sessionRepo := repoPostgres.NewSessionRepository(pool)
+	// WebSocket hub
+	hub := websocket.NewHub()
 
-	authUC := usecase.New(
-		userRepo,
-		deviceRepo,
-		sessionRepo,
-		cfg.JWT.Secret,
-		cfg.JWT.TTL,
-	)
+	// HTTP router
+	mux := http.NewServeMux()
 
-	lis, err := net.Listen("tcp", cfg.GRPC.Port)
-	if err != nil {
-		log.Fatalf("Port dinlenemiyor %s: %v", cfg.GRPC.Port, err)
+	// REST handler'ları kaydet
+	handler := httphandler.NewHandler(clients)
+	handler.RegisterRoutes(mux)
+
+	// WebSocket endpoint
+	mux.HandleFunc("/ws", hub.ServeWS)
+
+	// CORS middleware
+	corsHandler := corsMiddleware(mux)
+
+	// HTTP sunucusu
+	srv := &http.Server{
+		Addr:    cfg.HTTP.Port,
+		Handler: corsHandler,
 	}
-
-	grpcServer := grpc.NewServer()
-
-	// Handler kaydet
-	authpb.RegisterAuthServiceServer(grpcServer, grpchandler.NewAuthHandler(authUC))
-
-	// Reflection — grpcurl test için
-	reflection.Register(grpcServer)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("auth-svc gRPC sunucusu başlatıldı → %s", cfg.GRPC.Port)
-		if err := grpcServer.Serve(lis); err != nil {
-			log.Fatalf("gRPC sunucu hatası: %v", err)
+		log.Printf("api-gateway başlatıldı → %s", cfg.HTTP.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP sunucu hatası: %v", err)
 		}
 	}()
 
 	<-quit
-	log.Println("Kapatma sinyali alındı, temizleniyor...")
-	grpcServer.GracefulStop()
-	log.Println("auth-svc kapatıldı")
+	log.Println("api-gateway kapatılıyor...")
+	srv.Close()
+	log.Println("api-gateway kapatıldı")
+}
+
+// corsMiddleware tüm origin'lere izin verir — geliştirme için.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

@@ -3,7 +3,7 @@ package grpchandler
 import (
 	"context"
 
-	pb "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb/auth/v1"
+	pb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
 	domainUsecase "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/usecase"
 
 	"google.golang.org/grpc/codes"
