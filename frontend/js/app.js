@@ -232,10 +232,8 @@ function renderConvList(convs) {
 
 async function openConversation(convId) {
   Store.setActiveConv(convId);
-
-  if (typeof Socket !== 'undefined' && Socket.joinConv) {
   Socket.joinConv(convId);
-}
+
   document.querySelectorAll('.conv-item').forEach(el => {
     el.classList.toggle('active', el.dataset.id === convId);
   });
@@ -246,7 +244,7 @@ async function openConversation(convId) {
       <div class="avatar">S</div>
       <div class="chat-header-info">
         <h3>Sohbet</h3>
-        <span>Çevrimiçi</span>
+        <span id="typing-indicator" style="color:var(--color-success)">Çevrimiçi</span>
       </div>
     </div>
     <div class="message-list" id="message-list"></div>
@@ -256,7 +254,6 @@ async function openConversation(convId) {
     </div>
   `;
 
-  // Mesaj gönder
   const sendBtn  = document.getElementById('send-btn');
   const msgInput = document.getElementById('msg-input');
 
@@ -267,6 +264,30 @@ async function openConversation(convId) {
       sendMessage(convId, msgInput);
     }
   });
+
+  // Yazıyor bildirimi gönder
+  let typingTimer;
+  msgInput.addEventListener('input', () => {
+    clearTimeout(typingTimer);
+    Socket.send('typing', { conversation_id: convId });
+    typingTimer = setTimeout(() => {}, 2000);
+  });
+
+  // Yazıyor bildirimini dinle
+  Socket.off('typing', window._typingHandler);
+  window._typingHandler = (data) => {
+    if (data.conversation_id !== Store.activeConvId) return;
+    const el = document.getElementById('typing-indicator');
+    if (!el) return;
+    el.textContent = 'yazıyor...';
+    el.style.color = 'var(--color-primary)';
+    clearTimeout(window._typingClear);
+    window._typingClear = setTimeout(() => {
+      el.textContent = 'Çevrimiçi';
+      el.style.color = 'var(--color-success)';
+    }, 2000);
+  };
+  Socket.on('typing', window._typingHandler);
 
   // Geçmiş mesajları yükle
   try {
