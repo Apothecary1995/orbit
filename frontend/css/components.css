@@ -144,6 +144,28 @@
   padding: 8px;
 }
 
+/* ── Avatar wrapper + presence dot ── */
+.avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.presence-dot {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 2px var(--bg-surface);
+  transition: background var(--transition);
+}
+
+.presence-dot.online {
+  background: var(--color-success);
+}
+
 /* ── Konuşma listesi öğesi ── */
 .conv-item {
   display: flex;

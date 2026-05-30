@@ -33,20 +33,57 @@ func NewHub() *Hub {
 }
 
 func (h *Hub) Register(client *Client) {
+	online, _ := json.Marshal(OutgoingMessage{
+		Type:    "presence",
+		Payload: map[string]interface{}{"user_id": client.userID, "online": true},
+	})
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.clients[client.userID] = client
+	for id, c := range h.clients {
+		if id != client.userID {
+			select {
+			case c.send <- online:
+			default:
+			}
+		}
+	}
+	h.mu.Unlock()
 	log.Printf("WS bağlandı: %s (toplam: %d)", client.userID, len(h.clients))
 }
 
 func (h *Hub) Unregister(userID string) {
+	offline, _ := json.Marshal(OutgoingMessage{
+		Type:    "presence",
+		Payload: map[string]interface{}{"user_id": userID, "online": false},
+	})
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	if c, ok := h.clients[userID]; ok {
 		close(c.send)
 		delete(h.clients, userID)
 	}
+	for _, c := range h.clients {
+		select {
+		case c.send <- offline:
+		default:
+		}
+	}
+	h.mu.Unlock()
 	log.Printf("WS ayrıldı: %s (toplam: %d)", userID, len(h.clients))
+}
+
+// GetOnlineUserIDs returns a snapshot of currently connected user IDs, excluding the caller.
+func (h *Hub) GetOnlineUserIDs(excludeUserID string) []string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	ids := make([]string, 0, len(h.clients))
+	for id := range h.clients {
+		if id != excludeUserID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (h *Hub) BroadcastToConv(convID string, message interface{}) {
@@ -146,6 +183,12 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		Payload: map[string]string{"user_id": userID},
 	})
 	client.send <- welcome
+
+	onlineUsers, _ := json.Marshal(OutgoingMessage{
+		Type:    "online_users",
+		Payload: map[string]interface{}{"user_ids": h.GetOnlineUserIDs(userID)},
+	})
+	client.send <- onlineUsers
 
 	for {
 		_, payload, err := wsConn.ReadMessage()

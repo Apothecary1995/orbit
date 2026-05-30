@@ -94,13 +94,14 @@ const Socket = {
       case 'typing':
         this._emit('typing', msg.payload);
         break;
-      case 'user_online':
-        Store.setOnline(msg.payload.user_id);
-        this._emit('user_online', msg.payload);
+      case 'presence':
+        if (msg.payload.online) Store.setOnline(msg.payload.user_id);
+        else Store.setOffline(msg.payload.user_id);
+        this._emit('presence', msg.payload);
         break;
-      case 'user_offline':
-        Store.setOffline(msg.payload.user_id);
-        this._emit('user_offline', msg.payload);
+      case 'online_users':
+        Store.setOnlineUsers(msg.payload.user_ids || []);
+        this._emit('online_users', msg.payload);
         break;
         case 'call_signal':
   this._emit('call_signal', msg.payload);

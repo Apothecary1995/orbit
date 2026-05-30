@@ -131,6 +131,23 @@ function renderRegister() {
   });
 }
 
+function updatePresenceIndicator(userId, online) {
+  const item = document.querySelector(`.conv-item[data-other-user-id="${userId}"]`);
+  if (item) {
+    const dot = item.querySelector('.presence-dot');
+    if (dot) dot.classList.toggle('online', online);
+  }
+
+  const hdr = document.getElementById('chat-header');
+  if (hdr && hdr.dataset.otherUserId === userId) {
+    const el = document.getElementById('typing-indicator');
+    if (el && !el.dataset.typing) {
+      el.textContent = online ? 'Çevrimiçi' : 'Çevrimdışı';
+      el.style.color = online ? 'var(--color-success)' : 'var(--text-muted)';
+    }
+  }
+}
+
 // ── Chat sayfası ──────────────────────────────────────
 function renderChat() {
   Socket.connect();
@@ -245,6 +262,15 @@ function renderChat() {
     }
   });
 
+  Socket.off('presence', window._presenceHandler);
+  window._presenceHandler = ({ user_id, online }) => updatePresenceIndicator(user_id, online);
+  Socket.on('presence', window._presenceHandler);
+
+  Socket.off('online_users', window._onlineUsersHandler);
+  window._onlineUsersHandler = ({ user_ids }) =>
+    (user_ids || []).forEach(id => updatePresenceIndicator(id, true));
+  Socket.on('online_users', window._onlineUsersHandler);
+
   loadConversations();
 }
 
@@ -255,6 +281,7 @@ async function searchUsers(q) {
   try {
     const data = await Api.get(`/auth/search?q=${encodeURIComponent(q)}`);
     const users = data?.users || [];
+    users.forEach(u => Store.addUser(u.id, u.username));
 
     if (users.length === 0) {
       results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:4px">Kullanıcı bulunamadı</div>';
@@ -280,6 +307,7 @@ async function searchUsers(q) {
 }
 
 async function startDirectChat(targetUserId, targetUsername) {
+  Store.addUser(targetUserId, targetUsername);
   // Önce mevcut sohbet var mı kontrol et
   const existing = Store.conversations.find(c =>
     c.type === 'direct' && c.name === targetUsername
@@ -318,6 +346,10 @@ async function loadConversations() {
     if (!userId) return;
     const data = await Api.getConversations();
     const convs = data?.conversations || [];
+    // other_user_id geliyorsa userMap'e ekle
+    convs.forEach(c => {
+      if (c.other_user_id && c.name) Store.addUser(c.other_user_id, c.name);
+    });
     Store.setConversations(convs);
     renderConvList(convs);
 
@@ -342,18 +374,28 @@ function renderConvList(convs) {
     return;
   }
 
-  list.innerHTML = convs.map(conv => `
-    <div class="conv-item" data-id="${conv.id}">
-      <div class="avatar">${(conv.name || '?')[0].toUpperCase()}</div>
-      <div class="conv-info">
-        <div class="conv-name">${conv.name || 'Sohbet'}</div>
-        <div class="conv-preview">Son mesaj...</div>
+  list.innerHTML = convs.map(conv => {
+    const otherId = conv.type === 'direct' ? (conv.other_user_id || Store.getUserId(conv.name)) : null;
+    const online  = otherId ? Store.isOnline(otherId) : false;
+    const dot     = otherId
+      ? `<div class="presence-dot${online ? ' online' : ''}"></div>`
+      : '';
+    return `
+      <div class="conv-item" data-id="${conv.id}"${otherId ? ` data-other-user-id="${otherId}"` : ''}>
+        <div class="avatar-wrap">
+          <div class="avatar">${(conv.name || '?')[0].toUpperCase()}</div>
+          ${dot}
+        </div>
+        <div class="conv-info">
+          <div class="conv-name">${conv.name || 'Sohbet'}</div>
+          <div class="conv-preview">Son mesaj...</div>
+        </div>
+        <div class="conv-meta">
+          <div class="conv-time">--:--</div>
+        </div>
       </div>
-      <div class="conv-meta">
-        <div class="conv-time">--:--</div>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 
   list.querySelectorAll('.conv-item').forEach(el => {
     el.addEventListener('click', () => openConversation(el.dataset.id));
@@ -368,13 +410,20 @@ async function openConversation(convId) {
     el.classList.toggle('active', el.dataset.id === convId);
   });
 
+  const conv       = Store.conversations.find(c => c.id === convId);
+  const convName   = conv?.name || 'Sohbet';
+  const otherId    = conv?.type === 'direct' ? (conv.other_user_id || Store.getUserId(conv.name)) : null;
+  const isOnline   = otherId ? Store.isOnline(otherId) : false;
+  const presenceTxt   = otherId ? (isOnline ? 'Çevrimiçi' : 'Çevrimdışı') : '';
+  const presenceColor = isOnline ? 'var(--color-success)' : 'var(--text-muted)';
+
   const chatArea = document.getElementById('chat-area');
   chatArea.innerHTML = `
-    <div class="chat-header">
-      <div class="avatar">${convId.slice(0,1).toUpperCase()}</div>
+    <div id="chat-header" class="chat-header"${otherId ? ` data-other-user-id="${otherId}"` : ''}>
+      <div class="avatar">${convName[0].toUpperCase()}</div>
       <div class="chat-header-info">
-        <h3>Sohbet</h3>
-        <span id="typing-indicator" style="color:var(--color-success)">Çevrimiçi</span>
+        <h3>${convName}</h3>
+        <span id="typing-indicator" style="color:${presenceColor}">${presenceTxt}</span>
       </div>
       <div style="margin-left:auto;display:flex;gap:8px">
         <button class="btn-icon" id="call-btn" title="Sesli arama">📞</button>
@@ -449,10 +498,15 @@ async function openConversation(convId) {
     if (!el) return;
     el.textContent = 'yazıyor...';
     el.style.color = 'var(--color-primary)';
+    el.dataset.typing = '1';
     clearTimeout(window._typingClear);
     window._typingClear = setTimeout(() => {
-      el.textContent = 'Çevrimiçi';
-      el.style.color = 'var(--color-success)';
+      delete el.dataset.typing;
+      const hdr     = document.getElementById('chat-header');
+      const uid     = hdr?.dataset?.otherUserId;
+      const online  = uid ? Store.isOnline(uid) : false;
+      el.textContent = uid ? (online ? 'Çevrimiçi' : 'Çevrimdışı') : '';
+      el.style.color = online ? 'var(--color-success)' : 'var(--text-muted)';
     }, 2000);
   };
   Socket.on('typing', window._typingHandler);

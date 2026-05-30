@@ -11,6 +11,7 @@ const Store = {
     conversations:   [],
     messages:        {},   // convId → mesaj listesi
     onlineUsers:     new Set(),
+    userMap:         new Map(), // userId → username, '~'+username → userId
   },
 
   // ── Auth ───────────────────────────────────────────────
@@ -78,9 +79,18 @@ const Store = {
   },
 
   // ── Online durumu ──────────────────────────────────────
-  setOnline(userID)    { this._state.onlineUsers.add(userID); },
-  setOffline(userID)   { this._state.onlineUsers.delete(userID); },
-  isOnline(userID)     { return this._state.onlineUsers.has(userID); },
+  setOnline(userID)        { this._state.onlineUsers.add(userID); },
+  setOffline(userID)       { this._state.onlineUsers.delete(userID); },
+  isOnline(userID)         { return this._state.onlineUsers.has(userID); },
+  setOnlineUsers(ids)      { this._state.onlineUsers = new Set(ids); },
+
+  // ── Kullanıcı ID ↔ username eşlemesi ───────────────────
+  addUser(id, username) {
+    this._state.userMap.set(id, username);
+    this._state.userMap.set('~' + username, id);
+  },
+  getUserId(username)  { return this._state.userMap.get('~' + username); },
+  getUsername(id)      { return this._state.userMap.get(id); },
 };
 
 // Sayfa açılınca localStorage'dan yükle

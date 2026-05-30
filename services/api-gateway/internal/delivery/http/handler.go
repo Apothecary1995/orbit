@@ -171,7 +171,31 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"conversations": resp.Conversations})
+
+		// Direct sohbetlerde other_user_id'yi ekle
+		type convWithOther struct {
+			*chatpb.Conversation
+			OtherUserID string `json:"other_user_id,omitempty"`
+		}
+		enriched := make([]convWithOther, 0, len(resp.Conversations))
+		for _, c := range resp.Conversations {
+			entry := convWithOther{Conversation: c}
+			if c.Type == "direct" {
+				mResp, err := h.clients.ChatService.GetMembers(r.Context(), &chatpb.GetMembersRequest{
+					ConversationId: c.Id,
+				})
+				if err == nil {
+					for _, id := range mResp.MemberIds {
+						if id != userID {
+							entry.OtherUserID = id
+							break
+						}
+					}
+				}
+			}
+			enriched = append(enriched, entry)
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"conversations": enriched})
 
 	case http.MethodPost:
 		var req struct {
@@ -201,10 +225,10 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET  /api/v1/chat/conversations/{id}/messages → mesaj geçmişi
-// POST /api/v1/chat/conversations/{id}/messages → mesaj gönder
+// GET  /api/v1/chat/conversations/{id}/messages          → mesaj geçmişi
+// POST /api/v1/chat/conversations/{id}/messages          → mesaj gönder
+// POST /api/v1/chat/conversations/{id}/messages/{msgId}/read → okundu işaretle
 func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
-	// /api/v1/chat/conversations/{id}/messages → id'yi çıkar
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/chat/conversations/"), "/")
 	if len(parts) < 2 {
 		writeError(w, http.StatusBadRequest, "geçersiz URL")
@@ -215,6 +239,25 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 
 	if resource != "messages" {
 		writeError(w, http.StatusNotFound, "bulunamadı")
+		return
+	}
+
+	// POST /messages/{msgId}/read
+	if len(parts) == 4 && parts[3] == "read" && r.Method == http.MethodPost {
+		msgID := parts[2]
+		var req struct {
+			UserID string `json:"user_id"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		_, err := h.clients.ChatService.MarkAsRead(r.Context(), &chatpb.MarkAsReadRequest{
+			MessageId: msgID,
+			UserId:    req.UserID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 		return
 	}
 
