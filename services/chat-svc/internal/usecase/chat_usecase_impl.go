@@ -176,3 +176,14 @@ func generateID() string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+func (c *chatUsecase) GetConversationMembers(ctx context.Context, convID string) ([]string, error) {
+	members, err := c.convRepo.GetMembers(ctx, convID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, m := range members {
+		ids = append(ids, m.UserID)
+	}
+	return ids, nil
+}

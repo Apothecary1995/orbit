@@ -1,16 +1,15 @@
 syntax = "proto3";
-
 package auth.v1;
-
-option go_package = "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb;authpb";
+option go_package = "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1;authpb";
 
 service AuthService {
-  rpc Register(RegisterRequest)     returns (AuthResponse);
-  rpc Login(LoginRequest)           returns (AuthResponse);
-  rpc RefreshToken(RefreshRequest)  returns (AuthResponse);
-  rpc Logout(LogoutRequest)         returns (LogoutResponse);
-  rpc EnableTOTP(TOTPRequest)       returns (TOTPResponse);
-  rpc VerifyTOTP(VerifyTOTPRequest) returns (VerifyTOTPResponse);
+  rpc Register(RegisterRequest)       returns (AuthResponse);
+  rpc Login(LoginRequest)             returns (AuthResponse);
+  rpc RefreshToken(RefreshRequest)    returns (AuthResponse);
+  rpc Logout(LogoutRequest)           returns (LogoutResponse);
+  rpc EnableTOTP(TOTPRequest)         returns (TOTPResponse);
+  rpc VerifyTOTP(VerifyTOTPRequest)   returns (VerifyTOTPResponse);
+  rpc SearchUser(SearchUserRequest)   returns (SearchUserResponse);
 }
 
 message RegisterRequest {
@@ -19,54 +18,28 @@ message RegisterRequest {
   string password   = 3;
   DeviceInfo device = 4;
 }
-
 message LoginRequest {
   string phone      = 1;
   string password   = 2;
   DeviceInfo device = 3;
 }
-
-message RefreshRequest {
-  string refresh_token = 1;
-}
-
-message LogoutRequest {
-  string session_id = 1;
-}
-
-message TOTPRequest {
-  string user_id = 1;
-}
-
-message VerifyTOTPRequest {
-  string user_id = 1;
-  string code    = 2;
-}
+message RefreshRequest  { string refresh_token = 1; }
+message LogoutRequest   { string session_id    = 1; }
+message TOTPRequest     { string user_id       = 1; }
+message VerifyTOTPRequest { string user_id = 1; string code = 2; }
+message SearchUserRequest { string query = 1; }
 
 message AuthResponse {
   string access_token  = 1;
   string refresh_token = 2;
   UserInfo user        = 3;
 }
+message LogoutResponse        { bool success = 1; }
+message TOTPResponse          { string secret = 1; string qr_url = 2; }
+message VerifyTOTPResponse    { bool success = 1; }
+message SearchUserResponse    { repeated UserInfo users = 1; }
 
-message LogoutResponse {
-  bool success = 1;
-}
-
-message TOTPResponse {
-  string secret = 1;
-  string qr_url = 2;
-}
-
-message VerifyTOTPResponse {
-  bool success = 1;
-}
-
-message DeviceInfo {
-  string name       = 1;
-  string public_key = 2;
-}
-
+message DeviceInfo { string name = 1; string public_key = 2; }
 message UserInfo {
   string id           = 1;
   string username     = 2;

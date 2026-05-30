@@ -24,6 +24,7 @@ const (
 	ChatService_GetConversations_FullMethodName   = "/chat.v1.ChatService/GetConversations"
 	ChatService_CreateConversation_FullMethodName = "/chat.v1.ChatService/CreateConversation"
 	ChatService_MarkAsRead_FullMethodName         = "/chat.v1.ChatService/MarkAsRead"
+	ChatService_GetMembers_FullMethodName         = "/chat.v1.ChatService/GetMembers"
 )
 
 // ChatServiceClient is the client API for ChatService service.
@@ -35,6 +36,7 @@ type ChatServiceClient interface {
 	GetConversations(ctx context.Context, in *GetConversationsRequest, opts ...grpc.CallOption) (*GetConversationsResponse, error)
 	CreateConversation(ctx context.Context, in *CreateConversationRequest, opts ...grpc.CallOption) (*CreateConversationResponse, error)
 	MarkAsRead(ctx context.Context, in *MarkAsReadRequest, opts ...grpc.CallOption) (*MarkAsReadResponse, error)
+	GetMembers(ctx context.Context, in *GetMembersRequest, opts ...grpc.CallOption) (*GetMembersResponse, error)
 }
 
 type chatServiceClient struct {
@@ -95,6 +97,16 @@ func (c *chatServiceClient) MarkAsRead(ctx context.Context, in *MarkAsReadReques
 	return out, nil
 }
 
+func (c *chatServiceClient) GetMembers(ctx context.Context, in *GetMembersRequest, opts ...grpc.CallOption) (*GetMembersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetMembersResponse)
+	err := c.cc.Invoke(ctx, ChatService_GetMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ChatServiceServer is the server API for ChatService service.
 // All implementations must embed UnimplementedChatServiceServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type ChatServiceServer interface {
 	GetConversations(context.Context, *GetConversationsRequest) (*GetConversationsResponse, error)
 	CreateConversation(context.Context, *CreateConversationRequest) (*CreateConversationResponse, error)
 	MarkAsRead(context.Context, *MarkAsReadRequest) (*MarkAsReadResponse, error)
+	GetMembers(context.Context, *GetMembersRequest) (*GetMembersResponse, error)
 	mustEmbedUnimplementedChatServiceServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedChatServiceServer) CreateConversation(context.Context, *Creat
 }
 func (UnimplementedChatServiceServer) MarkAsRead(context.Context, *MarkAsReadRequest) (*MarkAsReadResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkAsRead not implemented")
+}
+func (UnimplementedChatServiceServer) GetMembers(context.Context, *GetMembersRequest) (*GetMembersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetMembers not implemented")
 }
 func (UnimplementedChatServiceServer) mustEmbedUnimplementedChatServiceServer() {}
 func (UnimplementedChatServiceServer) testEmbeddedByValue()                     {}
@@ -240,6 +256,24 @@ func _ChatService_MarkAsRead_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChatService_GetMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).GetMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_GetMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).GetMembers(ctx, req.(*GetMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ChatService_ServiceDesc is the grpc.ServiceDesc for ChatService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MarkAsRead",
 			Handler:    _ChatService_MarkAsRead_Handler,
+		},
+		{
+			MethodName: "GetMembers",
+			Handler:    _ChatService_GetMembers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

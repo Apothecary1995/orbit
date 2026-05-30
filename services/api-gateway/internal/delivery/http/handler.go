@@ -8,15 +8,17 @@ import (
 
 	authpb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
 	chatpb "github.com/Apothecary1995/cengsta-paradise/gen/chat/v1"
+	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
 )
 
 type Handler struct {
 	clients *grpcclient.Clients
+	hub     *websocket.Hub
 }
 
-func NewHandler(clients *grpcclient.Clients) *Handler {
-	return &Handler{clients: clients}
+func NewHandler(clients *grpcclient.Clients, hub *websocket.Hub) *Handler {
+	return &Handler{clients: clients, hub: hub}
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
@@ -239,7 +241,6 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 		if req.Type == "" {
 			req.Type = "text"
 		}
-
 		resp, err := h.clients.ChatService.SendMessage(r.Context(), &chatpb.SendMessageRequest{
 			ConversationId: convID,
 			SenderId:       req.SenderID,
@@ -250,6 +251,18 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+
+		// Direkt hub'a broadcast et — Redis pub/sub'a gerek yok
+		h.hub.BroadcastToConv(convID, map[string]interface{}{
+			"id":              resp.MessageId,
+			"conversation_id": convID,
+			"sender_id":       req.SenderID,
+			"content":         req.Content,
+			"type":            req.Type,
+			"status":          "sent",
+			"created_at":      resp.CreatedAt,
+		})
+
 		writeJSON(w, http.StatusCreated, map[string]interface{}{
 			"message_id": resp.MessageId,
 			"created_at": resp.CreatedAt,

@@ -25,7 +25,7 @@ func main() {
 	hub := websocket.NewHub()
 	mux := http.NewServeMux()
 
-	handler := httphandler.NewHandler(clients)
+	handler := httphandler.NewHandler(clients, hub)
 	handler.RegisterRoutes(mux)
 	mux.HandleFunc("/ws", hub.ServeWS)
 

@@ -39,4 +39,5 @@ type ChatUsecase interface {
 	CreateConversation(ctx context.Context, input CreateConversationInput) (*entity.Conversation, error)
 	GetConversations(ctx context.Context, userID string) ([]*entity.Conversation, error)
 	GetOrCreateDirect(ctx context.Context, userID1, userID2 string) (*entity.Conversation, error)
+	GetConversationMembers(ctx context.Context, convID string) ([]string, error)
 }

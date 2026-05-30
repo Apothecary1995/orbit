@@ -6,8 +6,6 @@ import (
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/entity"
 )
 
-// UserRepository DB'ye kullanıcı işlemleri için interface.
-// Implementasyon: internal/repository/postgres/user_repository_impl.go
 type UserRepository interface {
 	Create(ctx context.Context, user *entity.User) error
 	GetByID(ctx context.Context, id string) (*entity.User, error)
@@ -15,9 +13,9 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*entity.User, error)
 	UpdateLastSeen(ctx context.Context, id string) error
 	UpdateTOTP(ctx context.Context, id string, secret string, enabled bool) error
+	Search(ctx context.Context, query string) ([]*entity.User, error)
 }
 
-// DeviceRepository cihaz kayıtları için interface.
 type DeviceRepository interface {
 	Create(ctx context.Context, device *entity.Device) error
 	GetByID(ctx context.Context, id string) (*entity.Device, error)
@@ -25,7 +23,6 @@ type DeviceRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
-// SessionRepository oturum yönetimi için interface.
 type SessionRepository interface {
 	Create(ctx context.Context, session *entity.Session) error
 	GetByRefreshToken(ctx context.Context, token string) (*entity.Session, error)

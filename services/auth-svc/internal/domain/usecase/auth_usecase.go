@@ -6,7 +6,6 @@ import (
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/entity"
 )
 
-// RegisterInput kayıt için gereken bilgiler.
 type RegisterInput struct {
 	Username string
 	Phone    string
@@ -14,27 +13,23 @@ type RegisterInput struct {
 	Device   DeviceInput
 }
 
-// LoginInput giriş için gereken bilgiler.
 type LoginInput struct {
 	Phone    string
 	Password string
 	Device   DeviceInput
 }
 
-// DeviceInput cihaz bilgileri.
 type DeviceInput struct {
 	Name      string
 	PublicKey string
 }
 
-// AuthOutput başarılı giriş/kayıt sonucu.
 type AuthOutput struct {
 	User         *entity.User
 	AccessToken  string
 	RefreshToken string
 }
 
-// AuthUsecase auth servisinin tüm iş mantığını tanımlar.
 type AuthUsecase interface {
 	Register(ctx context.Context, input RegisterInput) (*AuthOutput, error)
 	Login(ctx context.Context, input LoginInput) (*AuthOutput, error)
@@ -42,4 +37,5 @@ type AuthUsecase interface {
 	Logout(ctx context.Context, sessionID string) error
 	EnableTOTP(ctx context.Context, userID string) (secret string, qrURL string, err error)
 	VerifyTOTP(ctx context.Context, userID string, code string) error
+	SearchUser(ctx context.Context, query string) ([]*entity.User, error)
 }

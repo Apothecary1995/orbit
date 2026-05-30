@@ -209,3 +209,6 @@ func (a *authUsecase) createSession(ctx context.Context, user *entity.User, devi
 		RefreshToken: refreshToken,
 	}, nil
 }
+func (a *authUsecase) SearchUser(ctx context.Context, query string) ([]*entity.User, error) {
+	return a.userRepo.Search(ctx, query)
+}

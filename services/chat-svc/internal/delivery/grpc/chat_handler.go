@@ -120,3 +120,10 @@ func (h *ChatHandler) MarkAsRead(ctx context.Context, req *pb.MarkAsReadRequest)
 	}
 	return &pb.MarkAsReadResponse{Success: true}, nil
 }
+func (h *ChatHandler) GetMembers(ctx context.Context, req *pb.GetMembersRequest) (*pb.GetMembersResponse, error) {
+	members, err := h.chatUC.GetConversationMembers(ctx, req.ConversationId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.GetMembersResponse{MemberIds: members}, nil
+}

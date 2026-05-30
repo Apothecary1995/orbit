@@ -133,6 +133,7 @@ function renderRegister() {
 
 // ── Chat sayfası ──────────────────────────────────────
 function renderChat() {
+    Socket.connect();
   document.getElementById('app').innerHTML = `
     <div class="sidebar">
       <div class="sidebar-header">
@@ -184,14 +185,14 @@ function renderChat() {
 async function loadConversations() {
   try {
     const userId = Store.user && Store.user.id;
-    if (!userId) {
-      console.error('User ID yok:', Store.user);
-      return;
-    }
+    if (!userId) return;
     const data = await Api.getConversations();
     const convs = data?.conversations || [];
     Store.setConversations(convs);
     renderConvList(convs);
+
+    // WS'e katılım bildir
+    convs.forEach(conv => Socket.joinConv(conv.id));
   } catch(e) {
     console.error('Conversations yüklenemedi:', e);
     renderConvList([]);
@@ -232,6 +233,9 @@ function renderConvList(convs) {
 async function openConversation(convId) {
   Store.setActiveConv(convId);
 
+  if (typeof Socket !== 'undefined' && Socket.joinConv) {
+  Socket.joinConv(convId);
+}
   document.querySelectorAll('.conv-item').forEach(el => {
     el.classList.toggle('active', el.dataset.id === convId);
   });
@@ -267,7 +271,7 @@ async function openConversation(convId) {
   // Geçmiş mesajları yükle
   try {
     const data = await Api.getMessages(convId);
-    const msgs = data?.messages || [];
+    const msgs = (data?.messages || []).reverse();
     Store.setMessages(convId, msgs);
     msgs.forEach(appendMessage);
   } catch {}

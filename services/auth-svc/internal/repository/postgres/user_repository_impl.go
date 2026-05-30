@@ -95,6 +95,34 @@ func (r *userRepository) scanUser(row pgx.Row) (*entity.User, error) {
 	}
 	return u, nil
 }
+func (r *userRepository) Search(ctx context.Context, query string) ([]*entity.User, error) {
+	q := "%" + query + "%"
+	sql := `
+		SELECT id, username, phone, password_hash, avatar_url, totp_secret, totp_enabled, last_seen, created_at
+		FROM users
+		WHERE username ILIKE $1 OR phone ILIKE $1
+		LIMIT 20
+	`
+	rows, err := r.db.Query(ctx, sql, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*entity.User
+	for rows.Next() {
+		u := &entity.User{}
+		if err := rows.Scan(
+			&u.ID, &u.Username, &u.Phone, &u.PasswordHash,
+			&u.AvatarURL, &u.TOTPSecret, &u.TOTPEnabled,
+			&u.LastSeen, &u.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
 
 // ── Device Repository ────────────────────────────────────
 
