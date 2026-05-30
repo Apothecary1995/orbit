@@ -3,15 +3,21 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 
+	pb "github.com/Apothecary1995/cengsta-paradise/gen/chat/v1"
 	"github.com/Apothecary1995/cengsta-paradise/services/chat-svc/config"
+	grpchandler "github.com/Apothecary1995/cengsta-paradise/services/chat-svc/internal/delivery/grpc"
 	infraDB "github.com/Apothecary1995/cengsta-paradise/services/chat-svc/internal/infrastructure/db"
 	"github.com/Apothecary1995/cengsta-paradise/services/chat-svc/internal/infrastructure/redis"
 	repoPostgres "github.com/Apothecary1995/cengsta-paradise/services/chat-svc/internal/repository/postgres"
 	"github.com/Apothecary1995/cengsta-paradise/services/chat-svc/internal/usecase"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -35,14 +41,28 @@ func main() {
 	msgRepo := repoPostgres.NewMessageRepository(pool)
 	convRepo := repoPostgres.NewConversationRepository(pool)
 	reactionRepo := repoPostgres.NewReactionRepository(pool)
-
 	chatUC := usecase.New(msgRepo, convRepo, reactionRepo, publisher)
-	_ = chatUC
+
+	lis, err := net.Listen("tcp", cfg.GRPC.Port)
+	if err != nil {
+		log.Fatalf("Port dinlenemiyor: %v", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	pb.RegisterChatServiceServer(grpcServer, grpchandler.NewChatHandler(chatUC))
+	reflection.Register(grpcServer)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	log.Printf("chat-svc başlatıldı → %s", cfg.GRPC.Port)
+	go func() {
+		log.Printf("chat-svc gRPC sunucusu başlatıldı → %s", cfg.GRPC.Port)
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("gRPC sunucu hatası: %v", err)
+		}
+	}()
+
 	<-quit
+	grpcServer.GracefulStop()
 	log.Println("chat-svc kapatıldı")
 }

@@ -16,33 +16,22 @@ import (
 func main() {
 	cfg := config.Load()
 
-	// gRPC client bağlantıları
-	clients, err := grpcclient.New(cfg.AuthSvc.Addr)
+	clients, err := grpcclient.New(cfg.AuthSvc.Addr, cfg.ChatSvc.Addr)
 	if err != nil {
 		log.Fatalf("gRPC client oluşturulamadı: %v", err)
 	}
 	defer clients.Close()
 
-	// WebSocket hub
 	hub := websocket.NewHub()
-
-	// HTTP router
 	mux := http.NewServeMux()
 
-	// REST handler'ları kaydet
 	handler := httphandler.NewHandler(clients)
 	handler.RegisterRoutes(mux)
-
-	// WebSocket endpoint
 	mux.HandleFunc("/ws", hub.ServeWS)
 
-	// CORS middleware
-	corsHandler := corsMiddleware(mux)
-
-	// HTTP sunucusu
 	srv := &http.Server{
 		Addr:    cfg.HTTP.Port,
-		Handler: corsHandler,
+		Handler: corsMiddleware(mux),
 	}
 
 	quit := make(chan os.Signal, 1)
@@ -56,23 +45,19 @@ func main() {
 	}()
 
 	<-quit
-	log.Println("api-gateway kapatılıyor...")
 	srv.Close()
 	log.Println("api-gateway kapatıldı")
 }
 
-// corsMiddleware tüm origin'lere izin verir — geliştirme için.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }

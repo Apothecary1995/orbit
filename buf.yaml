@@ -1,8 +1,6 @@
 version: v2
 modules:
   - path: proto
-    includes:
-      - proto/auth/v1
 lint:
   use:
     - STANDARD

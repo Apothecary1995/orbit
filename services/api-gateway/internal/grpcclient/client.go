@@ -5,21 +5,20 @@ import (
 	"log"
 
 	authpb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
+	chatpb "github.com/Apothecary1995/cengsta-paradise/gen/chat/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Clients tüm gRPC client bağlantılarını tutar.
 type Clients struct {
 	AuthService authpb.AuthServiceClient
+	ChatService chatpb.ChatServiceClient
 	authConn    *grpc.ClientConn
+	chatConn    *grpc.ClientConn
 }
 
-// New gRPC client bağlantılarını oluşturur.
-func New(authAddr string) (*Clients, error) {
-	// Auth servisine bağlan
-	authConn, err := grpc.NewClient(
-		authAddr,
+func New(authAddr, chatAddr string) (*Clients, error) {
+	authConn, err := grpc.NewClient(authAddr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
@@ -27,15 +26,27 @@ func New(authAddr string) (*Clients, error) {
 	}
 	log.Printf("auth-svc bağlantısı kuruldu → %s", authAddr)
 
+	chatConn, err := grpc.NewClient(chatAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("chat-svc bağlantısı kurulamadı: %w", err)
+	}
+	log.Printf("chat-svc bağlantısı kuruldu → %s", chatAddr)
+
 	return &Clients{
 		AuthService: authpb.NewAuthServiceClient(authConn),
+		ChatService: chatpb.NewChatServiceClient(chatConn),
 		authConn:    authConn,
+		chatConn:    chatConn,
 	}, nil
 }
 
-// Close tüm bağlantıları kapatır.
 func (c *Clients) Close() {
 	if c.authConn != nil {
 		c.authConn.Close()
+	}
+	if c.chatConn != nil {
+		c.chatConn.Close()
 	}
 }
