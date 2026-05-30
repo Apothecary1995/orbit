@@ -126,6 +126,11 @@ func (c *Conn) ReadMessage() (int, []byte, error) {
 		return c.ReadMessage()
 	}
 
+	// Close frame — bağlantıyı kapat
+	if opcode == OpClose {
+		return 0, nil, io.EOF
+	}
+
 	return opcode, payload, nil
 }
 
