@@ -147,7 +147,6 @@ function renderChat() {
         <button class="btn-icon" id="logout-btn" title="Çıkış">⏻</button>
       </div>
 
-      <!-- Kullanıcı arama paneli (gizli) -->
       <div id="search-panel" class="hidden" style="padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
         <input class="input" type="text" id="user-search-input" placeholder="Kullanıcı adı veya telefon ara..." />
         <div id="search-results" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
@@ -180,14 +179,52 @@ function renderChat() {
     Router.navigate('login');
   });
 
-  // Yeni sohbet butonu
+  // --- YENİ EKLENEN AÇILIR MENÜ KODU BURASI ---
   document.getElementById('new-chat-btn').addEventListener('click', () => {
-    const panel = document.getElementById('search-panel');
-    panel.classList.toggle('hidden');
-    if (!panel.classList.contains('hidden')) {
+    // Menü göster
+    const existing = document.getElementById('new-chat-menu');
+    if (existing) { existing.remove(); return; }
+
+    const menu = document.createElement('div');
+    menu.id = 'new-chat-menu';
+    menu.style.cssText = 'position:absolute;top:52px;left:12px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:10px;padding:6px;z-index:100;min-width:160px;box-shadow:var(--shadow-md)';
+    menu.innerHTML = `
+      <div id="menu-direct" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:8px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">
+        💬 Yeni mesaj
+      </div>
+      <div id="menu-group" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:8px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">
+        👥 Grup oluştur
+      </div>
+    `;
+
+    // Sidebar'a relative position ekle
+    const sidebar = document.querySelector('.sidebar');
+    sidebar.style.position = 'relative';
+    sidebar.appendChild(menu);
+
+    document.getElementById('menu-direct').addEventListener('click', () => {
+      menu.remove();
+      const panel = document.getElementById('search-panel');
+      panel.classList.remove('hidden');
       document.getElementById('user-search-input').focus();
-    }
+    });
+
+    document.getElementById('menu-group').addEventListener('click', () => {
+      menu.remove();
+      showGroupModal();
+    });
+
+    // Dışarı tıklayınca kapat
+    setTimeout(() => {
+      document.addEventListener('click', function closeMenu(e) {
+        if (!menu.contains(e.target) && e.target.id !== 'new-chat-btn') {
+          menu.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      });
+    }, 100);
   });
+  // --- YENİ EKLENEN KODUN BİTİŞİ ---
 
   // Kullanıcı arama
   let searchTimer;
@@ -432,23 +469,32 @@ async function openConversation(convId) {
 async function sendMessage(convId, input) {
   const content = input.value.trim();
   if (!content) return;
-
   input.value = '';
 
-  // Optimistik güncelleme — hemen göster
+  const replyToId = replyToMsg?.id || '';
+  const replyToContent = replyToMsg?.content || '';
+  clearReply();
+
   const tempMsg = {
-    id:              'temp-' + Date.now(),
-    conversation_id: convId,
-    sender_id:       Store.user.id,
+    id:               'temp-' + Date.now(),
+    conversation_id:  convId,
+    sender_id:        Store.user.id,
     content,
-    type:            'text',
-    status:          'sent',
-    created_at:      new Date().toISOString(),
+    type:             'text',
+    status:           'sent',
+    created_at:       new Date().toISOString(),
+    reply_to_id:      replyToId,
+    reply_to_content: replyToContent,
   };
   appendMessage(tempMsg);
 
   try {
-    await Api.sendMessage(convId, content);
+    await Api.post('/chat/conversations/' + convId + '/messages', {
+      sender_id:    Store.user.id,
+      content,
+      type:         'text',
+      reply_to_id:  replyToId,
+    });
   } catch (err) {
     console.error('Mesaj gönderilemedi:', err);
   }
@@ -459,9 +505,7 @@ function appendMessage(msg) {
   if (!list) return;
 
   const isSent = msg.sender_id === Store.user?.id;
-  const time   = new Date(msg.created_at).toLocaleTimeString('tr-TR', {
-    hour: '2-digit', minute: '2-digit',
-  });
+  const time = new Date(msg.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
   let statusIcon = '';
   if (isSent) {
@@ -470,35 +514,150 @@ function appendMessage(msg) {
     else                                 statusIcon = '<span style="color:#aaa">✓</span>';
   }
 
-  // İçerik türüne göre render
-  let content = '';
   const msgType = msg.type || 'text';
-  if (msgType === 'image') {
-    content = `<img src="${msg.content}" style="max-width:100%;border-radius:8px;display:block;margin-bottom:4px" />`;
-  } else if (msgType === 'file') {
-    content = `<a href="${msg.content}" target="_blank" style="color:var(--color-primary-light)">📎 Dosya</a>`;
-  } else {
-    content = msg.content;
+  let content = msgType === 'image' ? '<img src="' + msg.content + '" style="max-width:100%;border-radius:8px;display:block;margin-bottom:4px" />' :
+                msgType === 'file'  ? '<a href="' + msg.content + '" target="_blank" style="color:var(--color-primary-light)">📎 Dosya</a>' :
+                msg.content;
+
+  // Reply preview
+  let replyHTML = '';
+  if (msg.reply_to_id && msg.reply_to_content) {
+    replyHTML = `<div style="border-left:3px solid var(--color-primary);padding:4px 8px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);border-radius:0 4px 4px 0;background:rgba(127,119,221,0.1)">${msg.reply_to_content}</div>`;
   }
 
   const el = document.createElement('div');
-  el.className = `message-bubble ${isSent ? 'sent' : 'received'}`;
+  el.className = 'message-bubble ' + (isSent ? 'sent' : 'received');
   el.dataset.msgId = msg.id;
-  el.innerHTML = `
-    ${content}
-    <span class="message-time">${time} ${statusIcon}</span>
-  `;
+  el.dataset.content = msg.content;
+  el.innerHTML = replyHTML + content + '<span class="message-time">' + time + ' ' + statusIcon + '</span>';
 
-  list.appendChild(el);
+  // Emoji tepki butonu
+  const reactBar = document.createElement('div');
+  reactBar.style.cssText = 'display:none;position:absolute;' + (isSent ? 'left:-120px' : 'right:-120px') + ';top:0;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:99px;padding:4px 8px;display:flex;gap:4px;font-size:16px;cursor:pointer;box-shadow:var(--shadow-sm)';
+  reactBar.innerHTML = ['👍','❤️','😂','😮','😢','🔥'].map(e =>
+    '<span class="emoji-btn" data-emoji="' + e + '" style="cursor:pointer;padding:2px 4px;border-radius:4px" onmouseover="this.style.background=\'var(--bg-overlay)\'" onmouseout="this.style.background=\'transparent\'">' + e + '</span>'
+  ).join('');
+
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:' + (isSent ? 'flex-end' : 'flex-start') + ';margin-bottom:2px';
+  wrapper.appendChild(el);
+
+  // Reactions display
+  const reactionsEl = document.createElement('div');
+  reactionsEl.className = 'msg-reactions';
+  reactionsEl.dataset.msgId = msg.id;
+  reactionsEl.id = 'reactions-' + msg.id;
+  reactionsEl.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;' + (isSent ? 'justify-content:flex-end' : '');
+  wrapper.appendChild(reactionsEl);
+
+  list.appendChild(wrapper);
   list.scrollTop = list.scrollHeight;
 
+  // Hover ile tepki ve yanıt menüsü
+  el.addEventListener('mouseenter', () => {
+    el.style.cursor = 'pointer';
+  });
+
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showMessageMenu(e, msg, el);
+  });
+
   if (!isSent && msg.id && !msg.id.startsWith('temp-')) {
-    Api.post(`/chat/conversations/${msg.conversation_id}/messages/${msg.id}/read`, {
+    Api.post('/chat/conversations/' + msg.conversation_id + '/messages/' + msg.id + '/read', {
       user_id: Store.user.id,
     }).catch(() => {});
   }
 }
 
+function showMessageMenu(e, msg, el) {
+  document.querySelectorAll('.msg-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'msg-menu';
+  menu.style.cssText = 'position:fixed;left:' + e.clientX + 'px;top:' + e.clientY + 'px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:10px;padding:6px;z-index:1000;min-width:160px;box-shadow:var(--shadow-md)';
+
+  const emojis = ['👍','❤️','😂','😮','😢','🔥'];
+  menu.innerHTML = `
+    <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-color);margin-bottom:4px">
+      ${emojis.map(em => '<span data-emoji="' + em + '" style="font-size:20px;cursor:pointer;padding:2px 4px;border-radius:4px" onmouseover="this.style.background=\'var(--bg-overlay)\'" onmouseout="this.style.background=\'transparent\'">' + em + '</span>').join('')}
+    </div>
+    <div class="menu-item" id="menu-reply" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">↩️ Yanıtla</div>
+    <div class="menu-item" id="menu-copy" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">📋 Kopyala</div>
+  `;
+
+  document.body.appendChild(menu);
+
+  // Emoji tepki
+  menu.querySelectorAll('[data-emoji]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    menu.remove();
+    // Backend'e göndermeden direkt göster
+    addReactionToMessage(msg.id, btn.dataset.emoji, Store.user.id);
+  });
+});
+
+  // Yanıtla
+  document.getElementById('menu-reply').addEventListener('click', () => {
+    menu.remove();
+    setReplyTo(msg);
+  });
+
+  // Kopyala
+  document.getElementById('menu-copy').addEventListener('click', () => {
+    menu.remove();
+    navigator.clipboard.writeText(msg.content).catch(() => {});
+  });
+
+  // Dışarı tıklayınca kapat
+  setTimeout(() => {
+    document.addEventListener('click', function closeMenu() {
+      menu.remove();
+      document.removeEventListener('click', closeMenu);
+    });
+  }, 100);
+}
+
+function addReactionToMessage(msgId, emoji, userId) {
+  const reactEl = document.getElementById('reactions-' + msgId);
+  if (!reactEl) return;
+
+  const existing = reactEl.querySelector('[data-emoji="' + emoji + '"]');
+  if (existing) {
+    const count = parseInt(existing.dataset.count || '1') + 1;
+    existing.dataset.count = count;
+    existing.textContent = emoji + ' ' + count;
+  } else {
+    const span = document.createElement('span');
+    span.dataset.emoji = emoji;
+    span.dataset.count = '1';
+    span.style.cssText = 'background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:99px;padding:2px 8px;font-size:12px;cursor:pointer;';
+    span.textContent = emoji + ' 1';
+    reactEl.appendChild(span);
+  }
+}
+
+// Reply state
+let replyToMsg = null;
+
+function setReplyTo(msg) {
+  replyToMsg = msg;
+  const existing = document.getElementById('reply-preview');
+  if (existing) existing.remove();
+
+  const bar = document.querySelector('.message-input-bar');
+  const preview = document.createElement('div');
+  preview.id = 'reply-preview';
+  preview.style.cssText = 'padding:8px 12px;background:var(--bg-elevated);border-left:3px solid var(--color-primary);margin:0 0 4px;border-radius:0 8px 8px 0;font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center';
+  preview.innerHTML = '<span>↩️ ' + msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : '') + '</span><button onclick="clearReply()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>';
+  bar.parentNode.insertBefore(preview, bar);
+}
+
+function clearReply() {
+  replyToMsg = null;
+  const el = document.getElementById('reply-preview');
+  if (el) el.remove();
+}
 // ── Diğer sayfalar ────────────────────────────────────
 function renderCalls() {
   document.getElementById('app').innerHTML = `
@@ -563,6 +722,100 @@ const rtcConfig = {
     { urls: 'stun:stun1.l.google.com:19302' },
   ]
 };
+
+// ── Grup sohbet oluşturma ─────────────────────────────────
+function showGroupModal() {
+  const modal = document.createElement('div');
+  modal.id = 'group-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9998;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:var(--bg-surface);border:1px solid var(--border-color);border-radius:16px;padding:24px;width:100%;max-width:400px;box-shadow:var(--shadow-lg)">
+      <h3 style="margin-bottom:16px;font-size:16px">Grup oluştur</h3>
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">Grup adı</label>
+        <input class="input" type="text" id="group-name" placeholder="Grup adı..." />
+      </div>
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">Üye ara</label>
+        <input class="input" type="text" id="group-search" placeholder="Kullanıcı adı ara..." />
+      </div>
+      <div id="group-search-results" style="max-height:150px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:4px"></div>
+      <div id="selected-members" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;min-height:32px"></div>
+      <div style="display:flex;gap:8px">
+        <button id="create-group-btn" class="btn btn-primary" style="flex:1">Oluştur</button>
+        <button onclick="document.getElementById('group-modal').remove()" class="btn btn-ghost" style="flex:1">İptal</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const selectedUsers = new Map(); // id → username
+
+  const renderSelected = () => {
+    const container = document.getElementById('selected-members');
+    container.innerHTML = [...selectedUsers.entries()].map(([id, name]) => `
+      <span style="background:var(--bg-overlay);padding:4px 10px;border-radius:99px;font-size:12px;display:flex;align-items:center;gap:6px">
+        ${name}
+        <button onclick="removeGroupMember('${id}')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px;line-height:1">×</button>
+      </span>
+    `).join('');
+  };
+
+  window.removeGroupMember = (id) => { selectedUsers.delete(id); renderSelected(); };
+
+  let groupSearchTimer;
+  document.getElementById('group-search').addEventListener('input', (e) => {
+    clearTimeout(groupSearchTimer);
+    const q = e.target.value.trim();
+    if (q.length < 2) { document.getElementById('group-search-results').innerHTML = ''; return; }
+    groupSearchTimer = setTimeout(async () => {
+      try {
+        const data = await Api.get('/auth/search?q=' + encodeURIComponent(q));
+        const users = (data?.users || []).filter(u => u.id !== Store.user.id);
+        const results = document.getElementById('group-search-results');
+        results.innerHTML = users.map(u => `
+          <div class="conv-item" data-uid="${u.id}" data-uname="${u.username}" style="cursor:pointer;border-radius:8px">
+            <div class="avatar avatar-sm">${u.username[0].toUpperCase()}</div>
+            <div class="conv-name" style="font-size:13px">${u.username}</div>
+          </div>
+        `).join('');
+        results.querySelectorAll('.conv-item').forEach(el => {
+          el.addEventListener('click', () => {
+            selectedUsers.set(el.dataset.uid, el.dataset.uname);
+            renderSelected();
+            document.getElementById('group-search').value = '';
+            document.getElementById('group-search-results').innerHTML = '';
+          });
+        });
+      } catch {}
+    }, 400);
+  });
+
+  document.getElementById('create-group-btn').addEventListener('click', async () => {
+    const name = document.getElementById('group-name').value.trim();
+    if (!name) { alert('Grup adı zorunlu'); return; }
+    if (selectedUsers.size === 0) { alert('En az 1 üye ekle'); return; }
+
+    const memberIds = [Store.user.id, ...selectedUsers.keys()];
+    try {
+      const data = await Api.post('/chat/conversations', {
+        type:       'group',
+        name,
+        created_by: Store.user.id,
+        member_ids: memberIds,
+      });
+      const conv = data?.conversation;
+      if (conv) {
+        Store.conversations.unshift(conv);
+        renderConvList(Store.conversations);
+        modal.remove();
+        openConversation(conv.id);
+      }
+    } catch (e) { console.error('Grup oluşturulamadı:', e); }
+  });
+}
+
+
 
 async function startCall(convId, type) {
   try {

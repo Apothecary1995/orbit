@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -34,6 +35,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/chat/conversations", h.conversations)
 	mux.HandleFunc("/api/v1/chat/conversations/", h.conversationDetail)
 	mux.HandleFunc("/api/v1/media/upload", h.uploadMedia)
+
 }
 
 // ── Auth handler'ları ────────────────────────────────────
@@ -304,14 +306,14 @@ func (h *Handler) searchUser(w http.ResponseWriter, r *http.Request) {
 		"users": resp.Users,
 	})
 }
+
 func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
 		return
 	}
 
-	// Max 10MB
-	r.ParseMultipartForm(10 << 20)
+	r.ParseMultipartForm(10 << 20) // 10MB
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -320,36 +322,30 @@ func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// MinIO'ya yükle
-	data := make([]byte, header.Size)
-	file.Read(data)
-
-	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
-	url, err := h.uploadToMinio(fileName, data, header.Header.Get("Content-Type"))
+	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "yükleme başarısız")
+		writeError(w, http.StatusInternalServerError, "dosya okunamadı")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"url": url})
-}
+	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
+	minioURL := fmt.Sprintf("http://localhost:9000/cengsta-files/%s", fileName)
+	publicURL := fmt.Sprintf("http://localhost:9000/cengsta-files/%s", fileName)
 
-func (h *Handler) uploadToMinio(fileName string, data []byte, contentType string) (string, error) {
-	// MinIO HTTP API ile yükle
-	url := fmt.Sprintf("http://localhost:9000/cengsta/%s", fileName)
-	req, err := http.NewRequest("PUT", url, bytes.NewReader(data))
+	req, err := http.NewRequest("PUT", minioURL, bytes.NewReader(data))
 	if err != nil {
-		return "", err
+		writeError(w, http.StatusInternalServerError, "yükleme isteği oluşturulamadı")
+		return
 	}
-	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", header.Header.Get("Content-Type"))
 	req.ContentLength = int64(len(data))
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
+	if err != nil || resp.StatusCode >= 400 {
+		writeError(w, http.StatusInternalServerError, "MinIO yükleme başarısız")
+		return
 	}
-	defer resp.Body.Close()
 
-	return fmt.Sprintf("http://localhost:9000/cengsta/%s", fileName), nil
+	writeJSON(w, http.StatusOK, map[string]string{"url": publicURL})
 }
