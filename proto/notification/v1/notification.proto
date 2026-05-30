@@ -1,0 +1,3 @@
+syntax = "proto3";
+package notification.v1;
+option go_package = "github.com/Apothecary1995/cengsta-paradise/services/notification-svc/internal/delivery/grpc/pb;notificationpb";

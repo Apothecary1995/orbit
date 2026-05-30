@@ -9,25 +9,26 @@ import (
 	"syscall"
 
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/config"
+	grpchandler "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc"
+	authpb "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb/auth/v1"
 	infraDB "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/infrastructure/db"
 	repoPostgres "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/repository/postgres"
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/usecase"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
-	// 1. Config yükle
 	cfg := config.Load()
 
-	// 2. PostgreSQL bağlantısı
 	ctx := context.Background()
 	pool, err := infraDB.New(ctx, infraDB.Config{
 		Host:     cfg.DB.Host,
 		Port:     cfg.DB.Port,
 		User:     cfg.DB.User,
 		Password: cfg.DB.Password,
-		Name:     cfg.DB.Name,
+		DBName:   cfg.DB.Name,
 	})
 	if err != nil {
 		log.Fatalf("PostgreSQL bağlantısı kurulamadı: %v", err)
@@ -35,12 +36,10 @@ func main() {
 	defer pool.Close()
 	log.Println("PostgreSQL bağlantısı kuruldu")
 
-	// 3. Repository'leri oluştur
 	userRepo := repoPostgres.NewUserRepository(pool)
 	deviceRepo := repoPostgres.NewDeviceRepository(pool)
 	sessionRepo := repoPostgres.NewSessionRepository(pool)
 
-	// 4. Usecase oluştur — dependency injection
 	authUC := usecase.New(
 		userRepo,
 		deviceRepo,
@@ -48,9 +47,7 @@ func main() {
 		cfg.JWT.Secret,
 		cfg.JWT.TTL,
 	)
-	_ = authUC // gRPC handler eklenince kullanılacak
 
-	// 5. gRPC sunucusu
 	lis, err := net.Listen("tcp", cfg.GRPC.Port)
 	if err != nil {
 		log.Fatalf("Port dinlenemiyor %s: %v", cfg.GRPC.Port, err)
@@ -58,10 +55,12 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 
-	// proto handler buraya eklenecek:
-	// authpb.RegisterAuthServiceServer(grpcServer, grpcHandler.NewAuthHandler(authUC))
+	// Handler kaydet
+	authpb.RegisterAuthServiceServer(grpcServer, grpchandler.NewAuthHandler(authUC))
 
-	// 6. Graceful shutdown — Ctrl+C veya kill sinyalinde temiz kapat
+	// Reflection — grpcurl test için
+	reflection.Register(grpcServer)
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -72,7 +71,6 @@ func main() {
 		}
 	}()
 
-	// Sinyal bekle
 	<-quit
 	log.Println("Kapatma sinyali alındı, temizleniyor...")
 	grpcServer.GracefulStop()

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/domain/entity"
-	"github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/domain/repository"
-	"github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/infrastructure/db"
+	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/entity"
+	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/repository"
+	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/infrastructure/db"
 	"github.com/jackc/pgx/v5"
 )
 

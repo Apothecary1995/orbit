@@ -1,0 +1,3 @@
+syntax = "proto3";
+package media.v1;
+option go_package = "github.com/Apothecary1995/cengsta-paradise/services/media-svc/internal/delivery/grpc/pb;mediapb";

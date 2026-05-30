@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/domain/entity"
+	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/entity"
 )
 
 // UserRepository DB'ye kullanıcı işlemleri için interface.

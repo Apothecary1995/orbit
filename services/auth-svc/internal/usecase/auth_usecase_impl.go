@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/domain/entity"
-	"github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/domain/repository"
-	domainUsecase "github.com/Apothecary1995/cengsta-paradise/auth-svc/internal/domain/usecase"
+	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/entity"
+	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/repository"
+	domainUsecase "github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/usecase"
 )
 
 // authUsecase AuthUsecase interface'ini implemente eder.

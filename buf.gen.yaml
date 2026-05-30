@@ -4,10 +4,10 @@ plugins:
     out: services/auth-svc/internal/delivery/grpc/pb
     opt:
       - paths=source_relative
-      - Mauth/v1/auth.proto=github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb
+      - Mauth/v1/auth.proto=github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb;authpb
 
   - remote: buf.build/grpc/go
     out: services/auth-svc/internal/delivery/grpc/pb
     opt:
       - paths=source_relative
-      - Mauth/v1/auth.proto=github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb
+      - Mauth/v1/auth.proto=github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/delivery/grpc/pb;authpb

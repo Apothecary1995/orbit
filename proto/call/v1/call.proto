@@ -1,0 +1,3 @@
+syntax = "proto3";
+package call.v1;
+option go_package = "github.com/Apothecary1995/cengsta-paradise/services/call-svc/internal/delivery/grpc/pb;callpb";
