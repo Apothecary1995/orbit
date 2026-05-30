@@ -1,10 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	authpb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
 	chatpb "github.com/Apothecary1995/cengsta-paradise/gen/chat/v1"
@@ -30,6 +33,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/search", h.searchUser)
 	mux.HandleFunc("/api/v1/chat/conversations", h.conversations)
 	mux.HandleFunc("/api/v1/chat/conversations/", h.conversationDetail)
+	mux.HandleFunc("/api/v1/media/upload", h.uploadMedia)
 }
 
 // ── Auth handler'ları ────────────────────────────────────
@@ -299,4 +303,53 @@ func (h *Handler) searchUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"users": resp.Users,
 	})
+}
+func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
+		return
+	}
+
+	// Max 10MB
+	r.ParseMultipartForm(10 << 20)
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "dosya okunamadı")
+		return
+	}
+	defer file.Close()
+
+	// MinIO'ya yükle
+	data := make([]byte, header.Size)
+	file.Read(data)
+
+	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
+	url, err := h.uploadToMinio(fileName, data, header.Header.Get("Content-Type"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "yükleme başarısız")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"url": url})
+}
+
+func (h *Handler) uploadToMinio(fileName string, data []byte, contentType string) (string, error) {
+	// MinIO HTTP API ile yükle
+	url := fmt.Sprintf("http://localhost:9000/cengsta/%s", fileName)
+	req, err := http.NewRequest("PUT", url, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.ContentLength = int64(len(data))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	return fmt.Sprintf("http://localhost:9000/cengsta/%s", fileName), nil
 }

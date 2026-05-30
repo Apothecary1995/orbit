@@ -102,6 +102,9 @@ const Socket = {
         Store.setOffline(msg.payload.user_id);
         this._emit('user_offline', msg.payload);
         break;
+        case 'call_signal':
+  this._emit('call_signal', msg.payload);
+  break;
     }
   },
 

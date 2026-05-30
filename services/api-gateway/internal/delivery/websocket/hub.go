@@ -215,6 +215,34 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+		case "call_signal":
+			convID := ""
+			if payloadMap != nil {
+				convID, _ = payloadMap["conversation_id"].(string)
+			}
+			if convID != "" {
+				data, _ := json.Marshal(OutgoingMessage{
+					Type:    "call_signal",
+					Payload: payloadMap,
+				})
+				h.mu.RLock()
+				memberIDs := h.convMembers[convID]
+				h.mu.RUnlock()
+				for _, mid := range memberIDs {
+					if mid != userID {
+						h.mu.RLock()
+						c, ok := h.clients[mid]
+						h.mu.RUnlock()
+						if ok {
+							select {
+							case c.send <- data:
+							default:
+							}
+						}
+					}
+				}
+			}
+
 		}
 	}
 }
