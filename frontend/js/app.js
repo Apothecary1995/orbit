@@ -133,7 +133,8 @@ function renderRegister() {
 
 // ── Chat sayfası ──────────────────────────────────────
 function renderChat() {
-    Socket.connect();
+  Socket.connect();
+
   document.getElementById('app').innerHTML = `
     <div class="sidebar">
       <div class="sidebar-header">
@@ -142,13 +143,21 @@ function renderChat() {
           <div style="font-weight:600;font-size:14px">${Store.user?.username || ''}</div>
           <div style="font-size:12px;color:var(--color-success)">Çevrimiçi</div>
         </div>
+        <button class="btn-icon" id="new-chat-btn" title="Yeni sohbet">+</button>
         <button class="btn-icon" id="logout-btn" title="Çıkış">⏻</button>
       </div>
+
+      <!-- Kullanıcı arama paneli (gizli) -->
+      <div id="search-panel" class="hidden" style="padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
+        <input class="input" type="text" id="user-search-input" placeholder="Kullanıcı adı veya telefon ara..." />
+        <div id="search-results" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
+      </div>
+
       <div class="sidebar-search">
         <input class="input" type="text" placeholder="Ara..." id="search-input" />
       </div>
       <div class="sidebar-list" id="conv-list">
-        <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px)">
+        <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">
           Yükleniyor...
         </div>
       </div>
@@ -158,7 +167,7 @@ function renderChat() {
       <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">
         <div style="text-align:center">
           <div style="font-size:48px;margin-bottom:16px">💬</div>
-          <div>Bir sohbet seç</div>
+          <div>Bir sohbet seç veya yeni sohbet başlat</div>
         </div>
       </div>
     </div>
@@ -171,6 +180,27 @@ function renderChat() {
     Router.navigate('login');
   });
 
+  // Yeni sohbet butonu
+  document.getElementById('new-chat-btn').addEventListener('click', () => {
+    const panel = document.getElementById('search-panel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+      document.getElementById('user-search-input').focus();
+    }
+  });
+
+  // Kullanıcı arama
+  let searchTimer;
+  document.getElementById('user-search-input').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim();
+    if (q.length < 2) {
+      document.getElementById('search-results').innerHTML = '';
+      return;
+    }
+    searchTimer = setTimeout(() => searchUsers(q), 400);
+  });
+
   // WebSocket mesaj dinleyici
   Socket.on('new_message', (msg) => {
     if (msg.conversation_id === Store.activeConvId) {
@@ -178,10 +208,73 @@ function renderChat() {
     }
   });
 
-  // Sohbetleri yükle
   loadConversations();
 }
 
+async function searchUsers(q) {
+  const results = document.getElementById('search-results');
+  results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:4px">Aranıyor...</div>';
+
+  try {
+    const data = await Api.get(`/auth/search?q=${encodeURIComponent(q)}`);
+    const users = data?.users || [];
+
+    if (users.length === 0) {
+      results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:4px">Kullanıcı bulunamadı</div>';
+      return;
+    }
+
+    results.innerHTML = users.map(u => `
+      <div class="conv-item" data-uid="${u.id}" data-uname="${u.username}" style="cursor:pointer;border-radius:8px">
+        <div class="avatar avatar-sm">${u.username[0].toUpperCase()}</div>
+        <div class="conv-info">
+          <div class="conv-name">${u.username}</div>
+          <div class="conv-preview">${u.phone}</div>
+        </div>
+      </div>
+    `).join('');
+
+    results.querySelectorAll('.conv-item').forEach(el => {
+      el.addEventListener('click', () => startDirectChat(el.dataset.uid, el.dataset.uname));
+    });
+  } catch (e) {
+    results.innerHTML = '<div style="font-size:12px;color:var(--color-error);padding:4px">Hata oluştu</div>';
+  }
+}
+
+async function startDirectChat(targetUserId, targetUsername) {
+  // Önce mevcut sohbet var mı kontrol et
+  const existing = Store.conversations.find(c =>
+    c.type === 'direct' && c.name === targetUsername
+  );
+
+  if (existing) {
+    document.getElementById('search-panel').classList.add('hidden');
+    openConversation(existing.id);
+    return;
+  }
+
+  // Yeni sohbet oluştur
+  try {
+    const data = await Api.post('/chat/conversations', {
+      type:       'direct',
+      name:       targetUsername,
+      created_by: Store.user.id,
+      member_ids: [Store.user.id, targetUserId],
+    });
+
+    const conv = data?.conversation;
+    if (conv) {
+      Store.conversations.unshift(conv);
+      renderConvList(Store.conversations);
+      document.getElementById('search-panel').classList.add('hidden');
+      document.getElementById('user-search-input').value = '';
+      openConversation(conv.id);
+    }
+  } catch (e) {
+    console.error('Sohbet oluşturulamadı:', e);
+  }
+}
 async function loadConversations() {
   try {
     const userId = Store.user && Store.user.id;

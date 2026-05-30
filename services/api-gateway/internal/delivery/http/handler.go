@@ -23,14 +23,11 @@ func NewHandler(clients *grpcclient.Clients, hub *websocket.Hub) *Handler {
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/health", h.health)
-
-	// Auth
 	mux.HandleFunc("/api/v1/auth/register", h.register)
 	mux.HandleFunc("/api/v1/auth/login", h.login)
 	mux.HandleFunc("/api/v1/auth/refresh", h.refresh)
 	mux.HandleFunc("/api/v1/auth/logout", h.logout)
-
-	// Chat
+	mux.HandleFunc("/api/v1/auth/search", h.searchUser)
 	mux.HandleFunc("/api/v1/chat/conversations", h.conversations)
 	mux.HandleFunc("/api/v1/chat/conversations/", h.conversationDetail)
 }
@@ -283,4 +280,23 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+func (h *Handler) searchUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "sadece GET")
+		return
+	}
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		writeError(w, http.StatusBadRequest, "q parametresi zorunlu")
+		return
+	}
+	resp, err := h.clients.AuthService.SearchUser(r.Context(), &authpb.SearchUserRequest{Query: q})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "kullanıcı bulunamadı")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"users": resp.Users,
+	})
 }
