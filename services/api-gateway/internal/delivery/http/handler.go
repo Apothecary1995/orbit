@@ -269,6 +269,12 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			// Gönderene çift mavi tik bildirimi yayınla
+			h.hub.BroadcastTypedToConv(convID, "read_receipt", map[string]interface{}{
+				"message_id":      msgID,
+				"reader_id":       req.UserID,
+				"conversation_id": convID,
+			})
 			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 		case "edit":
 			var req struct {

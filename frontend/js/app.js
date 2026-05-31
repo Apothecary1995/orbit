@@ -334,9 +334,16 @@ function renderChat() {
 
   // WebSocket mesaj dinleyici
   Socket.on('new_message', (msg) => {
-    if (msg.conversation_id === Store.activeConvId) {
-      appendMessage(msg);
-    }
+    if (msg.conversation_id !== Store.activeConvId) return;
+    // Kendi gönderdiğimiz mesaj zaten temp olarak eklendi; gerçek id ile DOM'a baktık
+    if (msg.sender_id === Store.user?.id && document.querySelector(`[data-id="${msg.id}"]`)) return;
+    appendMessage(msg);
+  });
+
+  // Okundu bildirimi
+  Socket.on('read_receipt', ({ message_id, reader_id }) => {
+    if (reader_id === Store.user?.id) return; // kendi okuduğumuz — skip
+    updateMessageStatusIcon(message_id, 'read');
   });
 
   Socket.off('presence', window._presenceHandler);
@@ -358,6 +365,18 @@ function renderChat() {
     document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
     document.getElementById('server-dm-btn').classList.add('active');
     restoreDmSidebar();
+    // Chat alanını sıfırla
+    const chatArea = document.getElementById('chat-area');
+    if (chatArea && !Store.activeConvId) {
+      chatArea.innerHTML = `
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">
+          <div style="text-align:center">
+            <div style="font-size:48px;margin-bottom:16px">💬</div>
+            <div>Bir sohbet seç veya yeni sohbet başlat</div>
+          </div>
+        </div>
+      `;
+    }
   });
 
   document.getElementById('server-add-btn').addEventListener('click', showCreateServerModal);
@@ -368,13 +387,75 @@ function renderChat() {
 function restoreDmSidebar() {
   const sidebar = document.querySelector('.sidebar');
   if (!sidebar) return;
-  const list = document.getElementById('conv-list');
-  if (!list) return;
-  // Başlık ve search paneli zaten DOM'da, sadece conv listesini göster
+
+  // Sidebar'ı sıfırdan DM moduna yeniden oluştur
+  sidebar.innerHTML = `
+    <div class="sidebar-header">
+      <div class="avatar">${Store.user?.username?.[0]?.toUpperCase() || 'U'}</div>
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:14px">${Store.user?.username || ''}</div>
+        <div style="font-size:12px;color:var(--color-success)">Çevrimiçi</div>
+      </div>
+      <button class="btn-icon" id="new-chat-btn" title="Yeni sohbet">+</button>
+      <button class="btn-icon" id="logout-btn" title="Çıkış">⏻</button>
+    </div>
+    <div id="search-panel" class="hidden" style="padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
+      <input class="input" type="text" id="user-search-input" placeholder="Kullanıcı adı veya telefon ara..." />
+      <div id="search-results" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
+    </div>
+    <div id="story-bar" style="display:flex;gap:12px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--border-color);scrollbar-width:none"></div>
+    <div class="sidebar-search">
+      <input class="input" type="text" placeholder="Ara..." id="search-input" />
+    </div>
+    <div class="sidebar-list" id="conv-list"></div>
+  `;
+
+  sidebar.style.position = 'relative';
+
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    Socket.disconnect();
+    Store.clearAuth();
+    Router.navigate('login');
+  });
+
+  document.getElementById('new-chat-btn').addEventListener('click', () => {
+    const existing = document.getElementById('new-chat-menu');
+    if (existing) { existing.remove(); return; }
+    const menu = document.createElement('div');
+    menu.id = 'new-chat-menu';
+    menu.style.cssText = 'position:absolute;top:52px;left:12px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:10px;padding:6px;z-index:100;min-width:160px;box-shadow:var(--shadow-md)';
+    menu.innerHTML = `
+      <div id="menu-direct" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:8px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">💬 Yeni mesaj</div>
+      <div id="menu-group"  style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:8px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">👥 Grup oluştur</div>
+    `;
+    sidebar.appendChild(menu);
+    document.getElementById('menu-direct').addEventListener('click', () => {
+      menu.remove();
+      const panel = document.getElementById('search-panel');
+      panel.classList.remove('hidden');
+      document.getElementById('user-search-input').focus();
+    });
+    document.getElementById('menu-group').addEventListener('click', () => { menu.remove(); showGroupModal(); });
+    setTimeout(() => {
+      document.addEventListener('click', function closeMenu(e) {
+        if (!menu.contains(e.target) && e.target.id !== 'new-chat-btn') {
+          menu.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      });
+    }, 100);
+  });
+
+  let searchTimer;
+  document.getElementById('user-search-input').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim();
+    if (q.length < 2) { document.getElementById('search-results').innerHTML = ''; return; }
+    searchTimer = setTimeout(() => searchUsers(q), 400);
+  });
+
   renderConvList(Store.conversations);
-  // Sidebar başlığını güncelle
-  const hdrTitle = sidebar.querySelector('.sidebar-header .channel-header-title');
-  if (hdrTitle) hdrTitle.remove();
+  loadStories();
 }
 
 async function searchUsers(q) {
@@ -650,7 +731,7 @@ async function sendMessage(convId, input) {
 
   // Edit modu
   if (input.dataset.editingId) {
-    const msgId   = input.dataset.editingId;
+    const msgId      = input.dataset.editingId;
     const editConvId = input.dataset.editingConvId || convId;
     input.value = '';
     delete input.dataset.editingId;
@@ -664,17 +745,18 @@ async function sendMessage(convId, input) {
   }
 
   input.value = '';
-  const replyToId = replyToMsg?.id || '';
+  const replyToId      = replyToMsg?.id || '';
   const replyToContent = replyToMsg?.content || '';
   clearReply();
 
+  const tempId  = 'temp-' + Date.now();
   const tempMsg = {
-    id:               'temp-' + Date.now(),
+    id:               tempId,
     conversation_id:  convId,
     sender_id:        Store.user.id,
     content,
     type:             'text',
-    status:           'sent',
+    status:           'pending',
     created_at:       new Date().toISOString(),
     reply_to_id:      replyToId,
     reply_to_content: replyToContent,
@@ -682,14 +764,23 @@ async function sendMessage(convId, input) {
   appendMessage(tempMsg);
 
   try {
-    await Api.post('/chat/conversations/' + convId + '/messages', {
+    const result  = await Api.post('/chat/conversations/' + convId + '/messages', {
       sender_id:    Store.user.id,
       content,
       type:         'text',
       reply_to_id:  replyToId,
     });
+    const realId = result?.message_id;
+    // Temp element'i gerçek id ile güncelle ve "gönderildi" tikini göster
+    const tempEl = document.querySelector(`[data-id="${tempId}"]`);
+    if (tempEl) {
+      if (realId) tempEl.dataset.id = realId;
+      tempEl.querySelector('.message-bubble')?.setAttribute('data-msg-id', realId || tempId);
+      updateMessageStatusIcon(realId || tempId, 'sent');
+    }
   } catch (err) {
     console.error('Mesaj gönderilemedi:', err);
+    updateMessageStatusIcon(tempId, 'failed');
   }
 }
 
@@ -702,9 +793,16 @@ function appendMessage(msg) {
 
   let statusIcon = '';
   if (isSent) {
-    if (msg.status === 'read')           statusIcon = '<span style="color:#7F77DD">✓✓</span>';
-    else if (msg.status === 'delivered') statusIcon = '<span style="color:#aaa">✓✓</span>';
-    else                                 statusIcon = '<span style="color:#aaa">✓</span>';
+    const isPending = msg.status === 'pending' || msg.id?.startsWith('temp-');
+    if (isPending) {
+      statusIcon = '<span class="msg-status" style="font-size:10px;color:var(--text-muted);vertical-align:middle;opacity:.7">🕐</span>';
+    } else if (msg.status === 'failed') {
+      statusIcon = '<span class="msg-status" style="font-size:11px;color:#e74c3c" title="Gönderilemedi">⚠️</span>';
+    } else if (msg.status === 'read') {
+      statusIcon = '<span class="msg-status" style="color:#00E5C9;font-size:13px;letter-spacing:-3px;vertical-align:middle">✓✓</span>';
+    } else {
+      statusIcon = '<span class="msg-status" style="color:#00E5C9;font-size:13px;vertical-align:middle">✓</span>';
+    }
   }
 
   const msgType = msg.type || 'text';
@@ -766,6 +864,30 @@ function appendMessage(msg) {
       user_id: Store.user.id,
     }).catch(() => {});
   }
+}
+
+// Mesaj durum ikonunu güncelle (saat → tek tik → çift tik)
+function updateMessageStatusIcon(msgId, status) {
+  const wrapper = document.querySelector(`[data-id="${msgId}"]`);
+  if (!wrapper) return;
+  const timeEl = wrapper.querySelector('.message-time');
+  if (!timeEl) return;
+
+  let icon = '';
+  if (status === 'pending') {
+    icon = '<span class="msg-status" style="font-size:10px;color:var(--text-muted);vertical-align:middle;opacity:.7">🕐</span>';
+  } else if (status === 'failed') {
+    icon = '<span class="msg-status" style="font-size:11px;color:#e74c3c" title="Gönderilemedi">⚠️</span>';
+  } else if (status === 'read') {
+    icon = '<span class="msg-status" style="color:#00E5C9;font-size:13px;letter-spacing:-3px;vertical-align:middle">✓✓</span>';
+  } else {
+    // sent / delivered
+    icon = '<span class="msg-status" style="color:#00E5C9;font-size:13px;vertical-align:middle">✓</span>';
+  }
+
+  const existing = timeEl.querySelector('.msg-status');
+  if (existing) existing.outerHTML = icon;
+  else timeEl.insertAdjacentHTML('beforeend', icon);
 }
 
 function showMessageMenu(e, msg, el) {
@@ -1361,53 +1483,72 @@ function showCallModal(convId, type, isCaller) {
     padding:16px;box-sizing:border-box;
   `;
 
-  const videoContainerStyle = isScreen
-    ? 'width:100%;max-width:1280px;height:calc(100vh - 120px)'
-    : 'position:relative;width:100%;max-width:640px;max-height:480px';
-
-  const videoStyle = isScreen
-    ? 'width:100%;height:100%;border-radius:8px;background:#111;object-fit:contain'
-    : 'width:100%;border-radius:12px;background:#111';
-
-  const localPip = isScreen
-    ? ''
-    : `<video id="local-video" autoplay playsinline muted style="
-        position:absolute;bottom:12px;right:12px;
-        width:120px;border-radius:8px;background:#333;"></video>`;
-
-  const statusText = isScreen
-    ? (isCaller ? '🖥️ Ekran paylaşılıyor' : '🖥️ Ekran alınıyor...')
-    : (isCaller ? 'Bağlanıyor...' : 'Gelen arama...');
-
-  callModal.innerHTML = `
-    <div style="${videoContainerStyle}">
-      <video id="remote-video" autoplay playsinline style="${videoStyle}"></video>
-      ${localPip}
-    </div>
-    <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;justify-content:center">
-      ${!isScreen ? '<button onclick="toggleMute()" class="btn btn-ghost" id="mute-btn">🎤 Ses</button>' : ''}
-      ${type === 'video' ? '<button onclick="toggleCamera()" class="btn btn-ghost" id="cam-btn">📹 Kamera</button>' : ''}
-      ${isScreen && isCaller ? '<button onclick="toggleScreenAudio()" class="btn btn-ghost" id="screen-mic-btn">🎤 Ses</button>' : ''}
-      <button onclick="endCall()" class="btn btn-danger" id="end-call-btn">
-        ${isScreen && isCaller ? '🖥️ Paylaşımı Durdur' : '📵 Kapat'}
-      </button>
-    </div>
-    <div id="call-status" style="color:rgba(255,255,255,0.6);font-size:13px">${statusText}</div>
-  `;
+  if (isScreen && isCaller) {
+    // Paylaşan kişi: kendi ekranını büyük görür, karşı tarafın kamerasını küçük pip'te
+    callModal.innerHTML = `
+      <div style="position:relative;width:100%;max-width:1280px;height:calc(100vh - 120px)">
+        <video id="local-screen-preview" autoplay playsinline muted
+               style="width:100%;height:100%;border-radius:8px;background:#111;object-fit:contain"></video>
+        <div style="position:absolute;top:10px;left:12px;
+                    background:rgba(0,0,0,0.7);color:#fff;padding:4px 14px;
+                    border-radius:99px;font-size:12px;font-weight:600;
+                    backdrop-filter:blur(6px)">🖥️ Ekranınız — karşı taraf bunu görüyor</div>
+        <video id="remote-video" autoplay playsinline
+               style="position:absolute;bottom:12px;right:12px;
+                      width:180px;height:101px;border-radius:8px;
+                      background:#333;object-fit:cover;display:none;
+                      border:2px solid rgba(255,255,255,0.25)"></video>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;justify-content:center">
+        <button onclick="toggleScreenAudio()" class="btn btn-ghost" id="screen-mic-btn">🎤 Ses</button>
+        <button onclick="endCall()" class="btn btn-danger" id="end-call-btn">🖥️ Paylaşımı Durdur</button>
+      </div>
+      <div id="call-status" style="color:rgba(255,255,255,0.6);font-size:13px">🖥️ Ekran paylaşılıyor</div>
+    `;
+  } else if (isScreen && !isCaller) {
+    // İzleyen kişi: karşı tarafın ekranını büyük görür
+    callModal.innerHTML = `
+      <div style="width:100%;max-width:1280px;height:calc(100vh - 120px)">
+        <video id="remote-video" autoplay playsinline
+               style="width:100%;height:100%;border-radius:8px;background:#111;object-fit:contain"></video>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:4px">
+        <button onclick="endCall()" class="btn btn-danger" id="end-call-btn">📵 Kapat</button>
+      </div>
+      <div id="call-status" style="color:rgba(255,255,255,0.6);font-size:13px">🖥️ Ekran alınıyor...</div>
+    `;
+  } else {
+    // Sesli / görüntülü arama
+    callModal.innerHTML = `
+      <div style="position:relative;width:100%;max-width:640px;max-height:480px">
+        <video id="remote-video" autoplay playsinline
+               style="width:100%;border-radius:12px;background:#111"></video>
+        <video id="local-video" autoplay playsinline muted style="
+            position:absolute;bottom:12px;right:12px;
+            width:120px;border-radius:8px;background:#333;"></video>
+      </div>
+      <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;justify-content:center">
+        <button onclick="toggleMute()" class="btn btn-ghost" id="mute-btn">🎤 Ses</button>
+        ${type === 'video' ? '<button onclick="toggleCamera()" class="btn btn-ghost" id="cam-btn">📹 Kamera</button>' : ''}
+        ${type === 'video' || type === 'audio' ? '<button onclick="startScreenShare(\'' + convId + '\')" class="btn btn-ghost" id="share-btn">🖥️ Ekran Paylaş</button>' : ''}
+        <button onclick="endCall()" class="btn btn-danger" id="end-call-btn">📵 Kapat</button>
+      </div>
+      <div id="call-status" style="color:rgba(255,255,255,0.6);font-size:13px">
+        ${isCaller ? 'Bağlanıyor...' : 'Gelen arama...'}
+      </div>
+    `;
+  }
 
   document.body.appendChild(callModal);
 
+  // Local stream bağla
   if (!isScreen && localStream) {
-    document.getElementById('local-video').srcObject = localStream;
+    const lv = document.getElementById('local-video');
+    if (lv) lv.srcObject = localStream;
   }
-
-  // Ekran paylaşımında yerel önizleme küçük badge olarak göster
   if (isScreen && isCaller && localStream) {
-    const badge = document.createElement('div');
-    badge.id = 'screen-share-badge';
-    badge.style.cssText = 'position:fixed;bottom:80px;right:16px;background:var(--color-primary);color:#fff;padding:6px 12px;border-radius:99px;font-size:12px;font-weight:600;z-index:10000;pointer-events:none';
-    badge.textContent = '🖥️ Paylaşım aktif';
-    document.body.appendChild(badge);
+    const preview = document.getElementById('local-screen-preview');
+    if (preview) preview.srcObject = localStream;
   }
 }
 
@@ -1586,6 +1727,7 @@ async function openServer(serverId) {
         <div style="display:flex;gap:4px">
           <button class="btn-icon" id="members-btn" title="Üyeler" style="font-size:16px">👥</button>
           <button class="btn-icon" id="create-channel-btn" title="Kanal ekle" style="font-size:18px">+</button>
+          <button class="btn-icon" id="logout-btn" title="Çıkış" style="font-size:16px">⏻</button>
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-muted)">Davet: <code style="color:var(--color-primary);user-select:all">${server?.invite_code || ''}</code></div>
@@ -1598,6 +1740,11 @@ async function openServer(serverId) {
 
   document.getElementById('create-channel-btn').addEventListener('click', () => showCreateChannelModal(serverId));
   document.getElementById('members-btn').addEventListener('click', () => openMembersPanel(serverId));
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    Socket.disconnect();
+    Store.clearAuth();
+    Router.navigate('login');
+  });
 
   // Chat alanını temizle
   const chatArea = document.getElementById('chat-area');
@@ -1743,20 +1890,28 @@ async function openChannel(channelId, serverId) {
     if (!content) return;
     msgInput.value = '';
 
+    const tempId  = 'temp-' + Date.now();
     const tempMsg = {
-      id: 'temp-' + Date.now(),
+      id: tempId,
       conversation_id: convId || '',
       channel_id: channelId,
       sender_id: Store.user.id,
-      content, type: 'text', status: 'sent',
+      content, type: 'text', status: 'pending',
       created_at: new Date().toISOString(),
     };
     appendMessage(tempMsg);
 
     try {
-      await Api.sendChannelMessage(channelId, content);
+      const result = await Api.sendChannelMessage(channelId, content);
+      const realId = result?.message_id;
+      const tempEl = document.querySelector(`[data-id="${tempId}"]`);
+      if (tempEl) {
+        if (realId) tempEl.dataset.id = realId;
+        updateMessageStatusIcon(realId || tempId, 'sent');
+      }
     } catch (e) {
       console.error('Kanal mesajı gönderilemedi:', e);
+      updateMessageStatusIcon(tempId, 'failed');
     }
   };
 
@@ -2123,6 +2278,13 @@ let   voiceMicStream = null;
 // Web Audio API — konuşma algılama
 const voiceAnalysers = {}; // userId → { analyser, interval }
 
+// Sesli kanal video/ekran paylaşımı
+let voiceCamStream    = null;
+let voiceScreenStream = null;
+let voiceVideoEnabled = false;
+let voiceScreenSharing = false;
+const voiceVideos = {}; // tileId → <div> element
+
 async function joinVoice(channelId) {
   if (!Store.activeServerId) { showToast('Önce bir sunucuya gir', 'error'); return; }
 
@@ -2178,6 +2340,18 @@ async function leaveVoice() {
   voiceMicStream?.getTracks().forEach(t => t.stop());
   voiceMicStream = null;
 
+  // Kamera ve ekran paylaşımını kapat
+  voiceCamStream?.getTracks().forEach(t => t.stop());
+  voiceCamStream = null;
+  voiceVideoEnabled = false;
+  voiceScreenStream?.getTracks().forEach(t => t.stop());
+  voiceScreenStream = null;
+  voiceScreenSharing = false;
+
+  // Video tile'larını temizle
+  Object.keys(voiceVideos).forEach(id => removeVoiceVideoTile(id));
+  document.getElementById('voice-video-panel')?.remove();
+
   updateVoiceUI(null);
   showToast('Sesli kanaldan ayrıldınız', 'info');
 }
@@ -2204,9 +2378,18 @@ function getOrCreateVoicePeer(userId, channelId) {
   };
 
   pc.ontrack = (ev) => {
-    playVoiceStream(userId, ev.streams[0]);
+    const track  = ev.track;
+    const stream = ev.streams[0];
+    if (track.kind === 'audio') {
+      playVoiceStream(userId, stream);
+    } else if (track.kind === 'video') {
+      // Ekran paylaşımı mı yoksa kamera mı? Track label'dan anla
+      const lbl = track.label?.toLowerCase() ?? '';
+      const isScreen = lbl.includes('screen') || lbl.includes('display') || lbl.includes('monitor') || lbl.includes('window');
+      showVoiceVideoTile(userId, stream, isScreen);
+    }
     Store.addVoiceParticipant(channelId, userId);
-    updateVoiceHeader(channelId);
+    updateVoiceUI(channelId);
   };
 
   pc.onconnectionstatechange = () => {
@@ -2269,6 +2452,8 @@ function cleanupVoicePeer(userId, channelId) {
     clearInterval(voiceAnalysers[userId].interval);
     delete voiceAnalysers[userId];
   }
+
+  removeVoiceVideoTile(userId);
 
   Store.removeVoiceParticipant(channelId, userId);
   updateVoiceHeader(channelId);
@@ -2348,18 +2533,29 @@ function updateVoiceStatusBar(channelId) {
     display:flex;flex-direction:column;gap:6px;flex-shrink:0;
   `;
   bar.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:6px">
       <div style="flex:1;overflow:hidden">
         <div style="font-size:12px;font-weight:600;color:var(--color-success)">● Sesli bağlantı aktif</div>
         <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🔊 ${chName}</div>
       </div>
       <button onclick="toggleVoiceMute()" id="voice-mute-btn" class="btn-icon"
               title="${isMuted ? 'Mikrofonu aç' : 'Mikrofonu kapat'}"
-              style="font-size:18px;${isMuted ? 'color:var(--color-error)' : ''}">
+              style="font-size:16px;${isMuted ? 'color:var(--color-error)' : ''}">
         ${isMuted ? '🔇' : '🎤'}
       </button>
+      <button onclick="toggleVoiceCamera()" id="voice-cam-btn" class="btn-icon"
+              title="${voiceVideoEnabled ? 'Kamerayı kapat' : 'Kamerayı aç'}"
+              style="font-size:16px;${voiceVideoEnabled ? 'color:var(--color-primary)' : ''}">
+        ${voiceVideoEnabled ? '📹' : '📷'}
+      </button>
+      <button onclick="${voiceScreenSharing ? 'stopVoiceScreenShare()' : 'startVoiceScreenShare()'}"
+              id="voice-screen-btn" class="btn-icon"
+              title="${voiceScreenSharing ? 'Paylaşımı durdur' : 'Ekran paylaş'}"
+              style="font-size:16px;${voiceScreenSharing ? 'color:var(--color-primary)' : ''}">
+        🖥️
+      </button>
       <button onclick="leaveVoice()" class="btn-icon"
-              title="Kanaldan ayrıl" style="font-size:18px;color:var(--color-error)">
+              title="Kanaldan ayrıl" style="font-size:16px;color:var(--color-error)">
         📵
       </button>
     </div>
@@ -2379,6 +2575,183 @@ function toggleVoiceMute() {
     renderVoiceSidebarParticipants(Store.myVoiceChannelId, Store.getVoiceParticipants(Store.myVoiceChannelId));
   }
   showToast(track.enabled ? 'Mikrofon açık' : 'Mikrofon kapalı', 'info');
+}
+
+// ── Sesli kanal kamera / ekran paylaşımı ─────────────────
+
+async function toggleVoiceCamera() {
+  if (!Store.myVoiceChannelId) return;
+
+  if (voiceVideoEnabled) {
+    voiceCamStream?.getTracks().forEach(t => t.stop());
+    voiceCamStream = null;
+    voiceVideoEnabled = false;
+    removeVoiceVideoTile('__me__cam');
+    for (const pc of Object.values(voicePeers)) {
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video' && !voiceScreenSharing);
+      if (sender) pc.removeTrack(sender);
+    }
+    broadcastVoiceMeta('camera_off');
+    showToast('Kamera kapatıldı', 'info');
+  } else {
+    try {
+      voiceCamStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    } catch {
+      showToast('Kamera açılamadı', 'error');
+      return;
+    }
+    voiceVideoEnabled = true;
+    const videoTrack = voiceCamStream.getVideoTracks()[0];
+    showVoiceVideoTile('__me__cam', voiceCamStream, false);
+    for (const [uid, pc] of Object.entries(voicePeers)) {
+      try {
+        const existingSender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (existingSender) {
+          await existingSender.replaceTrack(videoTrack);
+        } else {
+          pc.addTrack(videoTrack, voiceCamStream);
+        }
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        Socket.send('voice_signal', { channel_id: Store.myVoiceChannelId, target_user_id: uid, type: 'offer', data: offer });
+      } catch (e) { console.error('Kamera renegotiation:', e); }
+    }
+    broadcastVoiceMeta('camera_on');
+    showToast('Kamera açıldı 📹', 'success');
+  }
+  updateVoiceStatusBar(Store.myVoiceChannelId);
+}
+
+async function startVoiceScreenShare() {
+  if (!Store.myVoiceChannelId) return;
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    showToast('Tarayıcınız ekran paylaşımını desteklemiyor', 'error');
+    return;
+  }
+  try {
+    voiceScreenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 }, cursor: 'always' },
+      audio: false,
+    });
+  } catch (e) {
+    if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') showToast('Ekran paylaşımı başlatılamadı', 'error');
+    return;
+  }
+  voiceScreenSharing = true;
+  const screenTrack = voiceScreenStream.getVideoTracks()[0];
+  showVoiceVideoTile('__me__screen', voiceScreenStream, true);
+
+  for (const [uid, pc] of Object.entries(voicePeers)) {
+    try {
+      const existingSender = pc.getSenders().find(s => s.track?.kind === 'video');
+      if (existingSender) {
+        await existingSender.replaceTrack(screenTrack);
+      } else {
+        pc.addTrack(screenTrack, voiceScreenStream);
+      }
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      Socket.send('voice_signal', { channel_id: Store.myVoiceChannelId, target_user_id: uid, type: 'offer', data: offer });
+    } catch (e) { console.error('Ekran paylaşımı renegotiation:', e); }
+  }
+  broadcastVoiceMeta('screen_share_on');
+  showToast('Ekran paylaşımı başlatıldı 🖥️', 'success');
+  updateVoiceStatusBar(Store.myVoiceChannelId);
+  screenTrack.addEventListener('ended', () => stopVoiceScreenShare());
+}
+
+function stopVoiceScreenShare() {
+  if (!voiceScreenSharing) return;
+  voiceScreenStream?.getTracks().forEach(t => t.stop());
+  voiceScreenStream = null;
+  voiceScreenSharing = false;
+  removeVoiceVideoTile('__me__screen');
+  for (const [uid, pc] of Object.entries(voicePeers)) {
+    const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+    if (sender) {
+      if (voiceVideoEnabled && voiceCamStream) {
+        sender.replaceTrack(voiceCamStream.getVideoTracks()[0]).catch(() => {});
+      } else {
+        pc.removeTrack(sender);
+      }
+    }
+  }
+  broadcastVoiceMeta('screen_share_off');
+  showToast('Ekran paylaşımı durduruldu', 'info');
+  updateVoiceStatusBar(Store.myVoiceChannelId);
+}
+
+function broadcastVoiceMeta(metaType) {
+  if (!Store.myVoiceChannelId) return;
+  Socket.send('voice_meta', { channel_id: Store.myVoiceChannelId, meta_type: metaType });
+}
+
+function showVoiceVideoTile(tileId, stream, isScreen) {
+  let panel = document.getElementById('voice-video-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'voice-video-panel';
+    panel.style.cssText = `
+      position:fixed;bottom:170px;right:16px;
+      display:flex;flex-direction:column;gap:8px;
+      z-index:1000;max-height:65vh;overflow-y:auto;
+    `;
+    document.body.appendChild(panel);
+  }
+
+  // Tile zaten varsa sadece stream'i güncelle
+  const existing = document.getElementById(`voice-video-tile-${tileId}`);
+  if (existing) {
+    const vid = existing.querySelector('video');
+    if (vid) vid.srcObject = stream;
+    return;
+  }
+
+  const isMine = tileId.startsWith('__me__');
+  const displayName = isMine
+    ? (tileId === '__me__screen' ? (Store.user?.username || 'Ben') + ' (Ekran)' : (Store.user?.username || 'Ben'))
+    : (Store.getUsername(tileId) || tileId.slice(0, 6));
+
+  const w = isScreen ? 320 : 180;
+  const tile = document.createElement('div');
+  tile.id = `voice-video-tile-${tileId}`;
+  tile.style.cssText = `
+    position:relative;background:#000;border-radius:12px;overflow:hidden;
+    width:${w}px;flex-shrink:0;
+    border:2px solid ${isScreen ? 'var(--color-primary)' : 'var(--border-color)'};
+    box-shadow:0 4px 24px rgba(0,0,0,0.5);
+  `;
+  const aspect = isScreen ? 56.25 : 75;
+  tile.innerHTML = `
+    <div style="position:relative;padding-top:${aspect}%">
+      <video autoplay playsinline ${isMine ? 'muted' : ''}
+             style="position:absolute;top:0;left:0;width:100%;height:100%;
+                    object-fit:${isScreen ? 'contain' : 'cover'}"></video>
+      <div style="position:absolute;bottom:5px;left:8px;
+                  background:rgba(0,0,0,0.65);color:#fff;padding:2px 8px;
+                  border-radius:99px;font-size:11px;font-weight:600;pointer-events:none">
+        ${isScreen ? '🖥️ ' : ''}${displayName}
+      </div>
+      ${isMine && isScreen ? `
+        <button onclick="stopVoiceScreenShare()"
+                style="position:absolute;top:6px;right:8px;background:var(--color-error);
+                       color:#fff;border:none;border-radius:8px;padding:3px 8px;
+                       font-size:11px;cursor:pointer;font-weight:600">■ Durdur</button>
+      ` : ''}
+    </div>
+  `;
+  const video = tile.querySelector('video');
+  video.srcObject = stream;
+  voiceVideos[tileId] = tile;
+  panel.appendChild(tile);
+}
+
+function removeVoiceVideoTile(tileId) {
+  const tile = document.getElementById(`voice-video-tile-${tileId}`);
+  if (tile) tile.remove();
+  delete voiceVideos[tileId];
+  const panel = document.getElementById('voice-video-panel');
+  if (panel && panel.children.length === 0) panel.remove();
 }
 
 // ── Sesli kanal WS olayları ──────────────────────────────
@@ -2514,7 +2887,10 @@ async function startScreenShare(convId) {
 
     peerConnection.ontrack = (ev) => {
       const rv = document.getElementById('remote-video');
-      if (rv) rv.srcObject = ev.streams[0];
+      if (rv) {
+        rv.srcObject = ev.streams[0];
+        rv.style.display = ''; // PIP'i görünür yap
+      }
     };
 
     // Bağlantı durumu değişince status güncelle
@@ -2565,6 +2941,23 @@ function toggleScreenAudio() {
   const btn = document.getElementById('screen-mic-btn');
   if (btn) btn.textContent = audioTrack.enabled ? '🎤 Ses' : '🔇 Sessiz';
 }
+
+// Sesli kanal meta olayları (kamera/ekran paylaşımı bildirimleri)
+Socket.on('voice_meta', ({ channel_id, from_user_id, meta_type }) => {
+  if (channel_id !== Store.myVoiceChannelId) return;
+  const name = Store.getUsername(from_user_id) || 'Biri';
+  if (meta_type === 'screen_share_on') {
+    showToast(`${name} ekranını paylaşıyor 🖥️`, 'info');
+  } else if (meta_type === 'screen_share_off') {
+    showToast(`${name} ekran paylaşımını durdurdu`, 'info');
+    removeVoiceVideoTile(from_user_id);
+  } else if (meta_type === 'camera_on') {
+    showToast(`${name} kamerasını açtı 📹`, 'info');
+  } else if (meta_type === 'camera_off') {
+    showToast(`${name} kamerasını kapattı`, 'info');
+    removeVoiceVideoTile(from_user_id);
+  }
+});
 
 // WebRTC sinyal mesajlarını dinle
 Socket.on('call_signal', async (data) => {

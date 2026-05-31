@@ -214,6 +214,28 @@ func (h *Hub) BroadcastToConv(convID string, message interface{}) {
 	}
 }
 
+// BroadcastTypedToConv belirli bir type ile konuşma üyelerine mesaj gönderir.
+func (h *Hub) BroadcastTypedToConv(convID string, msgType string, payload interface{}) {
+	data, err := json.Marshal(OutgoingMessage{Type: msgType, Payload: payload})
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	memberIDs := h.convMembers[convID]
+	h.mu.RUnlock()
+	for _, userID := range memberIDs {
+		h.mu.RLock()
+		client, ok := h.clients[userID]
+		h.mu.RUnlock()
+		if ok {
+			select {
+			case client.send <- data:
+			default:
+			}
+		}
+	}
+}
+
 func (h *Hub) SendToUser(userID string, msg interface{}) {
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -449,6 +471,28 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 					"data":         payloadMap["data"],
 				},
 			})
+
+		case "voice_meta":
+			// Kamera/ekran paylaşımı durumu — kanal katılımcılarına yayınla
+			channelID, _ := payloadMap["channel_id"].(string)
+			metaType, _ := payloadMap["meta_type"].(string)
+			if channelID == "" || metaType == "" {
+				continue
+			}
+			participants := h.voiceParticipants(channelID)
+			for _, uid := range participants {
+				if uid == userID {
+					continue
+				}
+				h.SendToUser(uid, OutgoingMessage{
+					Type: "voice_meta",
+					Payload: map[string]interface{}{
+						"channel_id":   channelID,
+						"from_user_id": userID,
+						"meta_type":    metaType,
+					},
+				})
+			}
 		}
 	}
 }
