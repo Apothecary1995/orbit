@@ -114,6 +114,19 @@ const Socket = {
       case 'call_signal':
         this._emit('call_signal', msg.payload);
         break;
+      // ── Sesli kanal ──────────────────────────────────────
+      case 'voice_participants':
+        this._emit('voice_participants', msg.payload);
+        break;
+      case 'voice_user_joined':
+        this._emit('voice_user_joined', msg.payload);
+        break;
+      case 'voice_user_left':
+        this._emit('voice_user_left', msg.payload);
+        break;
+      case 'voice_signal':
+        this._emit('voice_signal', msg.payload);
+        break;
     }
   },
 

@@ -38,3 +38,26 @@ type StoryRepository interface {
 	Create(ctx context.Context, story *entity.Story) error
 	ListByUserIDs(ctx context.Context, userIDs []string) ([]*entity.Story, error)
 }
+
+// ServerRepository server DB işlemleri.
+type ServerRepository interface {
+	Create(ctx context.Context, server *entity.Server) error
+	GetByID(ctx context.Context, id string) (*entity.Server, error)
+	GetByInviteCode(ctx context.Context, inviteCode string) (*entity.Server, error)
+	ListByUserID(ctx context.Context, userID string) ([]*entity.Server, error)
+	AddMember(ctx context.Context, member *entity.ServerMember) error
+	IsMember(ctx context.Context, serverID, userID string) (bool, error)
+	GetMember(ctx context.Context, serverID, userID string) (*entity.ServerMember, error)
+	ListMembers(ctx context.Context, serverID string) ([]*entity.ServerMember, error)
+	SetMemberRole(ctx context.Context, serverID, userID string, role entity.ServerRole) error
+	RemoveMember(ctx context.Context, serverID, userID string) error
+	Delete(ctx context.Context, id string) error
+}
+
+// ChannelRepository kanal DB işlemleri.
+type ChannelRepository interface {
+	Create(ctx context.Context, channel *entity.Channel) error
+	GetByID(ctx context.Context, id string) (*entity.Channel, error)
+	ListByServerID(ctx context.Context, serverID string) ([]*entity.Channel, error)
+	Delete(ctx context.Context, id string) error
+}

@@ -119,4 +119,64 @@ const Api = {
   async savePushSubscription(userId, subscription) {
     return this.post('/notifications/subscribe', { user_id: userId, subscription });
   },
+
+  // ── Server endpoint'leri ───────────────────────────────
+  async getServers() {
+    const userId = Store.user?.id;
+    if (!userId) throw new Error('user_id zorunlu');
+    return this.get(`/servers?user_id=${userId}`);
+  },
+
+  async createServer(name, iconUrl = '') {
+    return this.post('/servers', { name, icon_url: iconUrl, owner_id: Store.user.id });
+  },
+
+  async joinServer(inviteCode) {
+    return this.post('/servers/join', { invite_code: inviteCode, user_id: Store.user.id });
+  },
+
+  async deleteServer(serverId) {
+    return this._request('DELETE', `/servers/${serverId}`, { user_id: Store.user.id });
+  },
+
+  // ── Kanal endpoint'leri ────────────────────────────────
+  async getChannels(serverId) {
+    return this.get(`/servers/${serverId}/channels?user_id=${Store.user.id}`);
+  },
+
+  async createChannel(serverId, name, topic = '') {
+    return this.post(`/servers/${serverId}/channels`, { name, topic, owner_id: Store.user.id });
+  },
+
+  async deleteChannel(channelId) {
+    return this._request('DELETE', `/channels/${channelId}`, { user_id: Store.user.id });
+  },
+
+  // ── Üye & rol endpoint'leri ────────────────────────────
+  async getServerMembers(serverId) {
+    return this.get(`/servers/${serverId}/members?requester_id=${Store.user.id}`);
+  },
+
+  async setMemberRole(serverId, targetUserId, role) {
+    return this._request('PUT', `/servers/${serverId}/members/${targetUserId}/role`, {
+      requester_id: Store.user.id,
+      role,
+    });
+  },
+
+  async kickMember(serverId, targetUserId) {
+    return this._request('DELETE', `/servers/${serverId}/members/${targetUserId}`, {
+      requester_id: Store.user.id,
+    });
+  },
+
+  async getChannelMessages(channelId) {
+    return this.get(`/channels/${channelId}/messages`);
+  },
+
+  async sendChannelMessage(channelId, content, type = 'text') {
+    return this.post(`/channels/${channelId}/messages`, {
+      content, type, sender_id: Store.user.id,
+    });
+  },
 };

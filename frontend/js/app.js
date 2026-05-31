@@ -219,6 +219,14 @@ function renderChat() {
   setupPushNotifications();
 
   document.getElementById('app').innerHTML = `
+    <div class="server-panel" id="server-panel">
+      <div class="server-icon active" id="server-dm-btn" title="Direkt Mesajlar">💬</div>
+      <div class="server-divider"></div>
+      <div id="server-icons"></div>
+      <div class="server-divider" id="server-icons-divider" style="display:none"></div>
+      <div class="server-icon" id="server-add-btn" title="Server oluştur">+</div>
+      <div class="server-icon" id="server-join-btn" title="Server'a katıl">#</div>
+    </div>
     <div class="sidebar">
       <div class="sidebar-header">
         <div class="avatar">${Store.user?.username?.[0]?.toUpperCase() || 'U'}</div>
@@ -341,6 +349,32 @@ function renderChat() {
   Socket.on('online_users', window._onlineUsersHandler);
 
   loadConversations();
+  loadServers();
+
+  // DM modu
+  document.getElementById('server-dm-btn').addEventListener('click', () => {
+    Store.setActiveServer(null);
+    Store.setActiveChannel(null);
+    document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
+    document.getElementById('server-dm-btn').classList.add('active');
+    restoreDmSidebar();
+  });
+
+  document.getElementById('server-add-btn').addEventListener('click', showCreateServerModal);
+  document.getElementById('server-join-btn').addEventListener('click', showJoinServerModal);
+}
+
+// ── DM sidebar'ını geri yükle ────────────────────────────
+function restoreDmSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  const list = document.getElementById('conv-list');
+  if (!list) return;
+  // Başlık ve search paneli zaten DOM'da, sadece conv listesini göster
+  renderConvList(Store.conversations);
+  // Sidebar başlığını güncelle
+  const hdrTitle = sidebar.querySelector('.sidebar-header .channel-header-title');
+  if (hdrTitle) hdrTitle.remove();
 }
 
 async function searchUsers(q) {
@@ -498,6 +532,7 @@ async function openConversation(convId) {
       <div style="margin-left:auto;display:flex;gap:8px">
         <button class="btn-icon" id="call-btn" title="Sesli arama">📞</button>
         <button class="btn-icon" id="video-btn" title="Görüntülü arama">📹</button>
+        <button class="btn-icon" id="screen-btn" title="Ekran paylaş">🖥️</button>
       </div>
     </div>
     <div class="message-list" id="message-list"></div>
@@ -551,6 +586,7 @@ async function openConversation(convId) {
   // Arama butonları
   document.getElementById('call-btn').addEventListener('click', () => startCall(convId, 'audio'));
   document.getElementById('video-btn').addEventListener('click', () => startCall(convId, 'video'));
+  document.getElementById('screen-btn').addEventListener('click', () => startScreenShare(convId));
 
   // Yazıyor bildirimi gönder
   let typingTimer;
@@ -1255,6 +1291,11 @@ function showGroupModal() {
 
 async function startCall(convId, type) {
   try {
+    // Önceki bağlantı/stream temizle
+    if (peerConnection) { peerConnection.close(); peerConnection = null; }
+    if (localStream)    { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    document.getElementById('screen-share-badge')?.remove();
+
     // Kamera/mikrofon izni
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: true,
@@ -1309,52 +1350,84 @@ async function startCall(convId, type) {
 function showCallModal(convId, type, isCaller) {
   if (callModal) callModal.remove();
 
+  const isScreen = type === 'screen';
+
   callModal = document.createElement('div');
   callModal.id = 'call-modal';
   callModal.style.cssText = `
     position:fixed;top:0;left:0;width:100%;height:100%;
-    background:rgba(0,0,0,0.9);z-index:9999;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    background:rgba(0,0,0,0.95);z-index:9999;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    padding:16px;box-sizing:border-box;
   `;
 
-  callModal.innerHTML = `
-    <div style="position:relative;width:100%;max-width:640px;max-height:480px">
-      <video id="remote-video" autoplay playsinline style="width:100%;border-radius:12px;background:#111"></video>
-      <video id="local-video"  autoplay playsinline muted style="
+  const videoContainerStyle = isScreen
+    ? 'width:100%;max-width:1280px;height:calc(100vh - 120px)'
+    : 'position:relative;width:100%;max-width:640px;max-height:480px';
+
+  const videoStyle = isScreen
+    ? 'width:100%;height:100%;border-radius:8px;background:#111;object-fit:contain'
+    : 'width:100%;border-radius:12px;background:#111';
+
+  const localPip = isScreen
+    ? ''
+    : `<video id="local-video" autoplay playsinline muted style="
         position:absolute;bottom:12px;right:12px;
-        width:120px;border-radius:8px;background:#333;
-      "></video>
+        width:120px;border-radius:8px;background:#333;"></video>`;
+
+  const statusText = isScreen
+    ? (isCaller ? '🖥️ Ekran paylaşılıyor' : '🖥️ Ekran alınıyor...')
+    : (isCaller ? 'Bağlanıyor...' : 'Gelen arama...');
+
+  callModal.innerHTML = `
+    <div style="${videoContainerStyle}">
+      <video id="remote-video" autoplay playsinline style="${videoStyle}"></video>
+      ${localPip}
     </div>
-    <div style="display:flex;gap:16px;margin-top:16px">
-      <button onclick="toggleMute()" class="btn btn-ghost" id="mute-btn">🎤 Ses</button>
+    <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;justify-content:center">
+      ${!isScreen ? '<button onclick="toggleMute()" class="btn btn-ghost" id="mute-btn">🎤 Ses</button>' : ''}
       ${type === 'video' ? '<button onclick="toggleCamera()" class="btn btn-ghost" id="cam-btn">📹 Kamera</button>' : ''}
-      <button onclick="endCall()" class="btn btn-danger">📵 Kapat</button>
+      ${isScreen && isCaller ? '<button onclick="toggleScreenAudio()" class="btn btn-ghost" id="screen-mic-btn">🎤 Ses</button>' : ''}
+      <button onclick="endCall()" class="btn btn-danger" id="end-call-btn">
+        ${isScreen && isCaller ? '🖥️ Paylaşımı Durdur' : '📵 Kapat'}
+      </button>
     </div>
-    <div style="color:#aaa;font-size:13px">${isCaller ? 'Bağlanıyor...' : 'Gelen arama...'}</div>
+    <div id="call-status" style="color:rgba(255,255,255,0.6);font-size:13px">${statusText}</div>
   `;
 
   document.body.appendChild(callModal);
 
-  // Local video
-  if (localStream) {
+  if (!isScreen && localStream) {
     document.getElementById('local-video').srcObject = localStream;
+  }
+
+  // Ekran paylaşımında yerel önizleme küçük badge olarak göster
+  if (isScreen && isCaller && localStream) {
+    const badge = document.createElement('div');
+    badge.id = 'screen-share-badge';
+    badge.style.cssText = 'position:fixed;bottom:80px;right:16px;background:var(--color-primary);color:#fff;padding:6px 12px;border-radius:99px;font-size:12px;font-weight:600;z-index:10000;pointer-events:none';
+    badge.textContent = '🖥️ Paylaşım aktif';
+    document.body.appendChild(badge);
   }
 }
 
 function showIncomingCall(data) {
+  const isScreen = data.call_type === 'screen';
+  const callTypeText = isScreen ? '🖥️ Ekran paylaşımı'
+    : data.call_type === 'video' ? '📹 Görüntülü arama'
+    : '📞 Sesli arama';
+
   const modal = document.createElement('div');
   modal.id = 'incoming-call-modal';
   modal.style.cssText = 'position:fixed;top:24px;right:24px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:16px;padding:20px 24px;z-index:9999;box-shadow:var(--shadow-lg);min-width:260px';
   modal.innerHTML = `
-    <div style="font-weight:600;margin-bottom:8px">
-      📞 Gelen ${data.call_type === 'video' ? 'görüntülü' : 'sesli'} arama
-    </div>
+    <div style="font-weight:600;margin-bottom:8px">${callTypeText}</div>
     <div style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-      Birisi seni arıyor...
+      ${isScreen ? 'Biri ekranını paylaşıyor' : 'Birisi seni arıyor...'}
     </div>
     <div style="display:flex;gap:8px">
-      <button id="accept-call" class="btn btn-primary" style="flex:1">✅ Cevapla</button>
-      <button id="reject-call" class="btn btn-danger" style="flex:1">❌ Reddet</button>
+      <button id="accept-call" class="btn btn-primary" style="flex:1">✅ ${isScreen ? 'İzle' : 'Cevapla'}</button>
+      <button id="reject-call" class="btn btn-danger" style="flex:1">❌ ${isScreen ? 'Reddet' : 'Reddet'}</button>
     </div>
   `;
   document.body.appendChild(modal);
@@ -1362,13 +1435,22 @@ function showIncomingCall(data) {
   document.getElementById('accept-call').addEventListener('click', async () => {
     modal.remove();
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: data.call_type === 'video',
-      });
+      // Ekran paylaşımı alıcısının kameraya ihtiyacı yok
+      if (isScreen) {
+        localStream = new MediaStream(); // boş stream — sadece alıyoruz
+      } else {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: data.call_type === 'video',
+        });
+      }
+
       showCallModal(data.conversation_id, data.call_type, false);
       peerConnection = new RTCPeerConnection(rtcConfig);
-      localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+
+      if (!isScreen) {
+        localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+      }
 
       peerConnection.onicecandidate = (ev) => {
         if (ev.candidate) Socket.send('call_signal', {
@@ -1380,35 +1462,29 @@ function showIncomingCall(data) {
       peerConnection.ontrack = (ev) => {
         const rv = document.getElementById('remote-video');
         if (rv) rv.srcObject = ev.streams[0];
+        // Bağlantı kuruldu
+        const statusEl = document.getElementById('call-status');
+        if (statusEl && isScreen) statusEl.textContent = '🖥️ Ekran paylaşımı aktif';
       };
 
       await peerConnection.setRemoteDescription(data.data);
 
-      // Bekleyen ICE candidate'leri ekle
       if (window._pendingCandidates) {
-        for (const c of window._pendingCandidates) {
-          await peerConnection.addIceCandidate(c);
-        }
+        for (const c of window._pendingCandidates) await peerConnection.addIceCandidate(c);
         window._pendingCandidates = [];
       }
 
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
-      Socket.send('call_signal', {
-        conversation_id: data.conversation_id,
-        type: 'answer',
-        data: answer,
-      });
+      Socket.send('call_signal', { conversation_id: data.conversation_id, type: 'answer', data: answer });
     } catch (e) {
       console.error('Arama cevaplama hatası:', e);
+      showToast('Bağlantı kurulamadı', 'error');
     }
   });
 
-  document.getElementById('reject-call').addEventListener('click', () => {
-    modal.remove();
-  });
+  document.getElementById('reject-call').addEventListener('click', () => modal.remove());
 
-  // 30 saniye sonra otomatik kapat
   setTimeout(() => { if (document.getElementById('incoming-call-modal')) modal.remove(); }, 30000);
 }
 
@@ -1426,6 +1502,7 @@ function endCall() {
     callModal.remove();
     callModal = null;
   }
+  document.getElementById('screen-share-badge')?.remove();
 }
 
 function toggleMute() {
@@ -1444,6 +1521,970 @@ function toggleCamera() {
     track.enabled = !track.enabled;
     document.getElementById('cam-btn').textContent = track.enabled ? '📹 Kamera' : '📷 Kapalı';
   }
+}
+
+// ── Server & Kanal yönetimi ───────────────────────────────
+
+async function loadServers() {
+  try {
+    const data = await Api.getServers();
+    const servers = data?.servers || [];
+    Store.setServers(servers);
+    renderServerIcons(servers);
+  } catch (e) {
+    console.error('Serverlar yüklenemedi:', e);
+  }
+}
+
+function renderServerIcons(servers) {
+  const container = document.getElementById('server-icons');
+  const divider   = document.getElementById('server-icons-divider');
+  if (!container) return;
+
+  if (servers.length === 0) {
+    container.innerHTML = '';
+    if (divider) divider.style.display = 'none';
+    return;
+  }
+
+  if (divider) divider.style.display = '';
+
+  container.innerHTML = servers.map(s => `
+    <div class="server-icon" data-server-id="${s.id}" title="${s.name}"
+         style="font-size:14px;font-weight:600">
+      ${s.icon_url
+        ? `<img src="${s.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`
+        : s.name[0].toUpperCase()}
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.server-icon').forEach(el => {
+    el.addEventListener('click', () => openServer(el.dataset.serverId));
+  });
+}
+
+async function openServer(serverId) {
+  Store.setActiveServer(serverId);
+  Store.setActiveChannel(null);
+
+  // Aktif icon
+  document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
+  const icon = document.querySelector(`.server-icon[data-server-id="${serverId}"]`);
+  if (icon) icon.classList.add('active');
+
+  const server = Store.servers.find(s => s.id === serverId);
+  const serverName = server?.name || 'Server';
+
+  // Sidebar'ı kanal listesi moduna geçir
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+
+  sidebar.innerHTML = `
+    <div class="sidebar-header" style="flex-direction:column;align-items:flex-start;gap:6px">
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+        <div style="font-weight:700;font-size:15px">${serverName}</div>
+        <div style="display:flex;gap:4px">
+          <button class="btn-icon" id="members-btn" title="Üyeler" style="font-size:16px">👥</button>
+          <button class="btn-icon" id="create-channel-btn" title="Kanal ekle" style="font-size:18px">+</button>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted)">Davet: <code style="color:var(--color-primary);user-select:all">${server?.invite_code || ''}</code></div>
+    </div>
+    <div style="padding:8px 12px 4px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Metin Kanalları</div>
+    <div class="sidebar-list" id="channel-list">
+      <div style="padding:12px 16px;color:var(--text-muted);font-size:13px">Yükleniyor...</div>
+    </div>
+  `;
+
+  document.getElementById('create-channel-btn').addEventListener('click', () => showCreateChannelModal(serverId));
+  document.getElementById('members-btn').addEventListener('click', () => openMembersPanel(serverId));
+
+  // Chat alanını temizle
+  const chatArea = document.getElementById('chat-area');
+  if (chatArea) {
+    chatArea.innerHTML = `
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">
+        <div style="text-align:center">
+          <div style="font-size:48px;margin-bottom:16px">📡</div>
+          <div>Bir kanal seç</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Kanalları yükle
+  try {
+    const data = await Api.getChannels(serverId);
+    const channels = data?.channels || [];
+    Store.setChannels(serverId, channels);
+    renderChannelList(channels, serverId);
+  } catch (e) {
+    document.getElementById('channel-list').innerHTML = `<div style="padding:12px;color:var(--color-error);font-size:13px">Kanallar yüklenemedi</div>`;
+  }
+}
+
+function renderChannelList(channels, serverId) {
+  const list = document.getElementById('channel-list');
+  if (!list) return;
+
+  if (channels.length === 0) {
+    list.innerHTML = `<div style="padding:12px 16px;color:var(--text-muted);font-size:13px">Henüz kanal yok.<br>+ butonu ile ekle.</div>`;
+    return;
+  }
+
+  list.innerHTML = channels.map(ch => `
+    <div class="conv-item channel-item" data-channel-id="${ch.id}" data-conv-id="${ch.conversation_id}">
+      <span style="color:var(--text-muted);font-size:16px;margin-right:2px">#</span>
+      <div class="conv-info">
+        <div class="conv-name" style="font-size:14px">${ch.name}</div>
+        ${ch.topic ? `<div class="conv-preview" style="font-size:11px">${ch.topic}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.channel-item').forEach(el => {
+    el.addEventListener('click', () => openChannel(el.dataset.channelId, serverId));
+  });
+}
+
+async function openChannel(channelId, serverId) {
+  Store.setActiveChannel(channelId);
+
+  const channels = Store.getChannels(serverId);
+  const channel  = channels.find(c => c.id === channelId);
+  const convId   = channel?.conversation_id;
+
+  // Aktif kanal
+  document.querySelectorAll('.channel-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.channelId === channelId);
+  });
+
+  const chatArea = document.getElementById('chat-area');
+  if (!chatArea) return;
+
+  chatArea.innerHTML = `
+    <div class="chat-header" id="chat-header">
+      <span style="color:var(--text-muted);font-size:18px">#</span>
+      <div class="chat-header-info">
+        <h3>${channel?.name || 'kanal'}</h3>
+        ${channel?.topic ? `<span style="color:var(--text-muted);font-size:12px">${channel.topic}</span>` : ''}
+      </div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+        <div id="voice-participants-header" style="display:flex;gap:4px;align-items:center"></div>
+        <button class="btn-icon" id="channel-voice-btn" title="Sesli bağlan">🎙️</button>
+        <button class="btn-icon" id="channel-screen-btn" title="Ekran paylaş">🖥️</button>
+      </div>
+    </div>
+    <div class="message-list" id="message-list"></div>
+    <div class="message-input-bar">
+      <textarea class="message-input" id="msg-input" placeholder="#${channel?.name || 'kanal'} içine mesaj yaz..." rows="1"></textarea>
+      <button class="btn btn-primary" id="send-btn">Gönder</button>
+    </div>
+  `;
+
+  const sendBtn  = document.getElementById('send-btn');
+  const msgInput = document.getElementById('msg-input');
+
+  document.getElementById('channel-screen-btn')?.addEventListener('click', () => {
+    const shareConvId = convId || Store.activeConvId;
+    if (shareConvId) startScreenShare(shareConvId);
+    else showToast('Kanal bağlantısı kurulamadı', 'error');
+  });
+
+  document.getElementById('channel-voice-btn')?.addEventListener('click', () => {
+    if (Store.myVoiceChannelId === channelId) {
+      leaveVoice();
+    } else {
+      joinVoice(channelId);
+    }
+  });
+
+  const doSend = async () => {
+    const content = msgInput.value.trim();
+    if (!content) return;
+    msgInput.value = '';
+
+    const tempMsg = {
+      id: 'temp-' + Date.now(),
+      conversation_id: convId || '',
+      channel_id: channelId,
+      sender_id: Store.user.id,
+      content, type: 'text', status: 'sent',
+      created_at: new Date().toISOString(),
+    };
+    appendMessage(tempMsg);
+
+    try {
+      await Api.sendChannelMessage(channelId, content);
+    } catch (e) {
+      console.error('Kanal mesajı gönderilemedi:', e);
+    }
+  };
+
+  sendBtn.addEventListener('click', doSend);
+  msgInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+  });
+
+  // WS: bu kanalın backing conv'una katıl
+  if (convId) {
+    Store.setActiveConv(convId);
+    Socket.joinConv(convId);
+  }
+
+  // Kanal mesajlarını yükle
+  try {
+    const data = await Api.getChannelMessages(channelId);
+    const msgs = (data?.messages || []).reverse();
+    msgs.forEach(appendMessage);
+  } catch {}
+}
+
+// ── Server oluşturma modalı ──────────────────────────────
+function showCreateServerModal() {
+  const modal = document.createElement('div');
+  modal.className = 'cp-modal-overlay';
+  modal.innerHTML = `
+    <div class="cp-modal">
+      <h3 style="margin-bottom:16px">Server Oluştur</h3>
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">Server adı</label>
+        <input class="input" id="new-server-name" placeholder="Örn: Oyun Sunucusu" />
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="create-server-submit" class="btn btn-primary" style="flex:1">Oluştur</button>
+        <button onclick="this.closest('.cp-modal-overlay').remove()" class="btn btn-ghost" style="flex:1">İptal</button>
+      </div>
+      <div id="create-server-err" style="color:var(--color-error);font-size:13px;margin-top:8px;display:none"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('create-server-submit').addEventListener('click', async () => {
+    const name = document.getElementById('new-server-name').value.trim();
+    if (!name) return;
+    try {
+      const data = await Api.createServer(name);
+      const server = data?.server;
+      if (server) {
+        Store.servers.push(server);
+        renderServerIcons(Store.servers);
+        modal.remove();
+        openServer(server.id);
+      }
+    } catch (e) {
+      const errEl = document.getElementById('create-server-err');
+      errEl.textContent = e.message || 'Server oluşturulamadı';
+      errEl.style.display = '';
+    }
+  });
+}
+
+// ── Server'a katıl modalı ────────────────────────────────
+function showJoinServerModal() {
+  const modal = document.createElement('div');
+  modal.className = 'cp-modal-overlay';
+  modal.innerHTML = `
+    <div class="cp-modal">
+      <h3 style="margin-bottom:16px">Server'a Katıl</h3>
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">Davet kodu</label>
+        <input class="input" id="join-invite-code" placeholder="8 karakterli kod..." maxlength="8" />
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="join-server-submit" class="btn btn-primary" style="flex:1">Katıl</button>
+        <button onclick="this.closest('.cp-modal-overlay').remove()" class="btn btn-ghost" style="flex:1">İptal</button>
+      </div>
+      <div id="join-server-err" style="color:var(--color-error);font-size:13px;margin-top:8px;display:none"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('join-server-submit').addEventListener('click', async () => {
+    const code = document.getElementById('join-invite-code').value.trim();
+    if (!code) return;
+    try {
+      const data = await Api.joinServer(code);
+      const server = data?.server;
+      if (server) {
+        const existing = Store.servers.find(s => s.id === server.id);
+        if (!existing) Store.servers.push(server);
+        renderServerIcons(Store.servers);
+        modal.remove();
+        openServer(server.id);
+      }
+    } catch (e) {
+      const errEl = document.getElementById('join-server-err');
+      errEl.textContent = e.message || 'Geçersiz davet kodu';
+      errEl.style.display = '';
+    }
+  });
+}
+
+// ── Üye paneli ───────────────────────────────────────────
+
+const ROLE_LABELS = {
+  owner:     { label: 'Sahip',     color: '#ffd700' },
+  admin:     { label: 'Admin',     color: '#e74c3c' },
+  moderator: { label: 'Moderatör', color: '#3498db' },
+  member:    { label: 'Üye',       color: 'var(--text-muted)' },
+};
+
+// Mevcut kullanıcının bu server'daki rolünü döner
+function myRoleInServer(members) {
+  const me = members.find(m => m.user_id === Store.user.id);
+  return me?.role || 'member';
+}
+
+function roleLevel(role) {
+  return { owner: 3, admin: 2, moderator: 1, member: 0 }[role] ?? 0;
+}
+
+async function openMembersPanel(serverId) {
+  const chatArea = document.getElementById('chat-area');
+  if (!chatArea) return;
+
+  chatArea.innerHTML = `
+    <div class="chat-header">
+      <div style="font-size:18px">👥</div>
+      <div class="chat-header-info"><h3>Server Üyeleri</h3></div>
+    </div>
+    <div id="members-list" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:6px">
+      <div style="color:var(--text-muted);font-size:13px">Yükleniyor...</div>
+    </div>
+  `;
+
+  try {
+    const data = await Api.getServerMembers(serverId);
+    const members = data?.members || [];
+
+    // Bilinmeyen kullanıcı adlarını yükle
+    const unknownIds = members.filter(m => !Store.getUsername(m.user_id) && m.user_id !== Store.user.id).map(m => m.user_id);
+    await Promise.all(unknownIds.map(id =>
+      Api.get(`/auth/users/${id}`).then(d => {
+        if (d?.user) Store.addUser(d.user.id, d.user.username);
+      }).catch(() => {})
+    ));
+
+    renderMembersList(members, serverId);
+  } catch (e) {
+    document.getElementById('members-list').innerHTML = `<div style="color:var(--color-error);font-size:13px">${e.message}</div>`;
+  }
+}
+
+function renderMembersList(members, serverId) {
+  const list = document.getElementById('members-list');
+  if (!list) return;
+
+  const myRole = myRoleInServer(members);
+  const canManage = roleLevel(myRole) >= roleLevel('admin');
+
+  // Rollere göre grupla
+  const groups = { owner: [], admin: [], moderator: [], member: [] };
+  members.forEach(m => { (groups[m.role] || groups.member).push(m); });
+
+  const renderGroup = (role, items) => {
+    if (!items.length) return '';
+    const info = ROLE_LABELS[role];
+    return `
+      <div style="font-size:11px;font-weight:600;color:${info.color};text-transform:uppercase;letter-spacing:.6px;margin-top:12px;margin-bottom:4px">
+        ${info.label} — ${items.length}
+      </div>
+      ${items.map(m => renderMemberRow(m, serverId, myRole, canManage)).join('')}
+    `;
+  };
+
+  list.innerHTML =
+    renderGroup('owner', groups.owner) +
+    renderGroup('admin', groups.admin) +
+    renderGroup('moderator', groups.moderator) +
+    renderGroup('member', groups.member);
+
+  // Üye menüsü
+  list.querySelectorAll('.member-row[data-user-id]').forEach(el => {
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const targetId   = el.dataset.userId;
+      const targetRole = el.dataset.role;
+      if (targetId === Store.user.id) return;
+      if (!canManage && roleLevel(myRole) < roleLevel('moderator')) return;
+      showMemberMenu(e, targetId, targetRole, serverId, myRole, members);
+    });
+  });
+}
+
+function renderMemberRow(m, serverId, myRole, canManage) {
+  const info    = ROLE_LABELS[m.role] || ROLE_LABELS.member;
+  const name    = Store.getUsername(m.user_id) || m.user_id.slice(0, 8) + '...';
+  const online  = Store.isOnline(m.user_id);
+  const isMe    = m.user_id === Store.user.id;
+  const canAct  = !isMe && (roleLevel(myRole) > roleLevel(m.role));
+
+  return `
+    <div class="member-row conv-item" data-user-id="${m.user_id}" data-role="${m.role}"
+         style="cursor:${canAct ? 'context-menu' : 'default'};padding:8px 10px"
+         title="${canAct ? 'Sağ tık → yönet' : ''}">
+      <div class="avatar-wrap">
+        <div class="avatar avatar-sm">${name[0].toUpperCase()}</div>
+        <div class="presence-dot${online ? ' online' : ''}"></div>
+      </div>
+      <div class="conv-info">
+        <div class="conv-name" style="font-size:13px">${name}${isMe ? ' <span style="color:var(--text-muted)">(Sen)</span>' : ''}</div>
+        <div style="font-size:11px;color:${info.color}">${info.label}</div>
+      </div>
+    </div>
+  `;
+}
+
+function showMemberMenu(e, targetUserId, targetRole, serverId, myRole, members) {
+  document.querySelectorAll('.member-menu').forEach(m => m.remove());
+
+  const menu = document.createElement('div');
+  menu.className = 'member-menu';
+  menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:10px;padding:6px;z-index:2000;min-width:180px;box-shadow:var(--shadow-md)`;
+
+  const canSetRole = roleLevel(myRole) >= roleLevel('admin') && roleLevel(myRole) > roleLevel(targetRole);
+  const canKick    = roleLevel(myRole) >= roleLevel('moderator') && roleLevel(myRole) > roleLevel(targetRole);
+
+  const targetName = Store.getUsername(targetUserId) || targetUserId.slice(0, 8);
+
+  let roleOptions = '';
+  if (canSetRole) {
+    const availableRoles = ['admin', 'moderator', 'member'].filter(r => roleLevel(r) < roleLevel(myRole));
+    roleOptions = availableRoles.map(r => `
+      <div class="member-menu-item" data-action="role" data-role="${r}"
+           style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;color:${ROLE_LABELS[r].color}"
+           onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">
+        🏷 ${ROLE_LABELS[r].label} yap
+      </div>
+    `).join('');
+  }
+
+  menu.innerHTML = `
+    <div style="padding:6px 12px 6px;font-size:12px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border-color);margin-bottom:4px">${targetName}</div>
+    ${roleOptions}
+    ${canKick ? `<div class="member-menu-item" data-action="kick" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;color:var(--color-error)" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">👢 Sunucudan At</div>` : ''}
+  `;
+
+  document.body.appendChild(menu);
+
+  menu.querySelectorAll('.member-menu-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      menu.remove();
+      const action = item.dataset.action;
+      try {
+        if (action === 'role') {
+          await Api.setMemberRole(serverId, targetUserId, item.dataset.role);
+          showToast(`Rol güncellendi: ${ROLE_LABELS[item.dataset.role].label}`, 'success');
+          await openMembersPanel(serverId);
+        } else if (action === 'kick') {
+          if (!confirm(`${targetName} sunucudan atılacak. Emin misin?`)) return;
+          await Api.kickMember(serverId, targetUserId);
+          showToast(`${targetName} sunucudan atıldı`, 'success');
+          await openMembersPanel(serverId);
+        }
+      } catch (err) {
+        showToast(err.message || 'İşlem başarısız', 'error');
+      }
+    });
+  });
+
+  setTimeout(() => {
+    document.addEventListener('click', function close() {
+      menu.remove();
+      document.removeEventListener('click', close);
+    });
+  }, 50);
+}
+
+// ── Kanal oluşturma modalı ───────────────────────────────
+function showCreateChannelModal(serverId) {
+  const modal = document.createElement('div');
+  modal.className = 'cp-modal-overlay';
+  modal.innerHTML = `
+    <div class="cp-modal">
+      <h3 style="margin-bottom:16px">Kanal Oluştur</h3>
+      <div class="input-group" style="margin-bottom:12px">
+        <label class="input-label">Kanal adı</label>
+        <input class="input" id="new-channel-name" placeholder="genel" />
+      </div>
+      <div class="input-group" style="margin-bottom:16px">
+        <label class="input-label">Açıklama (isteğe bağlı)</label>
+        <input class="input" id="new-channel-topic" placeholder="Bu kanalın konusu..." />
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="create-channel-submit" class="btn btn-primary" style="flex:1">Oluştur</button>
+        <button onclick="this.closest('.cp-modal-overlay').remove()" class="btn btn-ghost" style="flex:1">İptal</button>
+      </div>
+      <div id="create-channel-err" style="color:var(--color-error);font-size:13px;margin-top:8px;display:none"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  document.getElementById('create-channel-submit').addEventListener('click', async () => {
+    const name  = document.getElementById('new-channel-name').value.trim();
+    const topic = document.getElementById('new-channel-topic').value.trim();
+    if (!name) return;
+    try {
+      const data = await Api.createChannel(serverId, name, topic);
+      const channel = data?.channel;
+      if (channel) {
+        Store.addChannel(serverId, channel);
+        modal.remove();
+        renderChannelList(Store.getChannels(serverId), serverId);
+        openChannel(channel.id, serverId);
+      }
+    } catch (e) {
+      const errEl = document.getElementById('create-channel-err');
+      errEl.textContent = e.message || 'Kanal oluşturulamadı';
+      errEl.style.display = '';
+    }
+  });
+}
+
+// ── Sesli Kanal (Mesh WebRTC) ────────────────────────────
+
+const voicePeers   = {};  // userId → RTCPeerConnection
+const voiceAudios  = {};  // userId → <audio> element
+let   voiceMicStream = null;
+// Web Audio API — konuşma algılama
+const voiceAnalysers = {}; // userId → { analyser, interval }
+
+async function joinVoice(channelId) {
+  if (!Store.activeServerId) { showToast('Önce bir sunucuya gir', 'error'); return; }
+
+  // Önceki kanaldan çık
+  if (Store.myVoiceChannelId && Store.myVoiceChannelId !== channelId) {
+    await leaveVoice();
+  }
+
+  // Mikrofon izni
+  try {
+    voiceMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    showToast('Mikrofon erişimi reddedildi', 'error');
+    return;
+  }
+
+  Store.setMyVoiceChannel(channelId);
+  Store.setVoiceParticipants(channelId, [Store.user.id]);
+
+  Socket.send('join_voice', { channel_id: channelId });
+  updateVoiceUI(channelId);
+  showToast('Sesli kanala bağlandınız 🎙️', 'success');
+}
+
+async function leaveVoice() {
+  const channelId = Store.myVoiceChannelId;
+  if (!channelId) return;
+
+  Socket.send('leave_voice', { channel_id: channelId });
+  Store.setMyVoiceChannel(null);
+  Store.setVoiceParticipants(channelId, []);
+
+  // Tüm P2P bağlantılarını kapat
+  for (const [uid, pc] of Object.entries(voicePeers)) {
+    pc.close();
+    delete voicePeers[uid];
+  }
+
+  // Ses elementlerini kaldır
+  for (const [uid, el] of Object.entries(voiceAudios)) {
+    el.srcObject = null;
+    el.remove();
+    delete voiceAudios[uid];
+  }
+
+  // Konuşma algılama intervallerini temizle
+  for (const [uid, a] of Object.entries(voiceAnalysers)) {
+    clearInterval(a.interval);
+    delete voiceAnalysers[uid];
+  }
+
+  // Mikrofon kapat
+  voiceMicStream?.getTracks().forEach(t => t.stop());
+  voiceMicStream = null;
+
+  updateVoiceUI(null);
+  showToast('Sesli kanaldan ayrıldınız', 'info');
+}
+
+// Ses peer bağlantısı oluştur veya var olanı döndür
+function getOrCreateVoicePeer(userId, channelId) {
+  if (voicePeers[userId]) return voicePeers[userId];
+
+  const pc = new RTCPeerConnection(rtcConfig);
+  voicePeers[userId] = pc;
+
+  // Kendi mikrofonumu ekle
+  if (voiceMicStream) {
+    voiceMicStream.getTracks().forEach(t => pc.addTrack(t, voiceMicStream));
+  }
+
+  pc.onicecandidate = (ev) => {
+    if (ev.candidate) Socket.send('voice_signal', {
+      channel_id:     channelId,
+      target_user_id: userId,
+      type:           'ice_candidate',
+      data:           ev.candidate,
+    });
+  };
+
+  pc.ontrack = (ev) => {
+    playVoiceStream(userId, ev.streams[0]);
+    Store.addVoiceParticipant(channelId, userId);
+    updateVoiceHeader(channelId);
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      cleanupVoicePeer(userId, channelId);
+    }
+  };
+
+  return pc;
+}
+
+function playVoiceStream(userId, stream) {
+  // Mevcut varsa güncelle
+  let audio = voiceAudios[userId];
+  if (!audio) {
+    audio = document.createElement('audio');
+    audio.id = `voice-audio-${userId}`;
+    audio.autoplay = true;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
+    voiceAudios[userId] = audio;
+  }
+  audio.srcObject = stream;
+
+  // Web Audio API ile konuşma algılaması
+  setupSpeakingDetection(userId, stream);
+}
+
+function setupSpeakingDetection(userId, stream) {
+  try {
+    const ctx      = new AudioContext();
+    const source   = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const interval = setInterval(() => {
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const el = document.querySelector(`.voice-avatar[data-uid="${userId}"]`);
+      if (el) el.classList.toggle('speaking', avg > 12);
+    }, 100);
+
+    voiceAnalysers[userId] = { analyser, interval };
+  } catch { /* AudioContext yoksa sessizce geç */ }
+}
+
+function cleanupVoicePeer(userId, channelId) {
+  voicePeers[userId]?.close();
+  delete voicePeers[userId];
+
+  if (voiceAudios[userId]) {
+    voiceAudios[userId].srcObject = null;
+    voiceAudios[userId].remove();
+    delete voiceAudios[userId];
+  }
+
+  if (voiceAnalysers[userId]) {
+    clearInterval(voiceAnalysers[userId].interval);
+    delete voiceAnalysers[userId];
+  }
+
+  Store.removeVoiceParticipant(channelId, userId);
+  updateVoiceHeader(channelId);
+}
+
+async function sendVoiceOffer(channelId, targetUserId) {
+  const pc    = getOrCreateVoicePeer(targetUserId, channelId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  Socket.send('voice_signal', { channel_id: channelId, target_user_id: targetUserId, type: 'offer', data: offer });
+}
+
+// ── Sesli kanal UI güncellemeleri ────────────────────────
+
+function updateVoiceUI(channelId) {
+  // Kanal header'daki bağlan/ayrıl butonu
+  const btn = document.getElementById('channel-voice-btn');
+  if (btn) {
+    if (channelId && Store.myVoiceChannelId === channelId) {
+      btn.textContent = '📵';
+      btn.title = 'Sesli kanaldan ayrıl';
+      btn.style.color = 'var(--color-error)';
+    } else {
+      btn.textContent = '🎙️';
+      btn.title = 'Sesli bağlan';
+      btn.style.color = '';
+    }
+  }
+
+  // Sidebar alt barı
+  updateVoiceStatusBar(channelId);
+  if (channelId) updateVoiceHeader(channelId);
+}
+
+function updateVoiceHeader(channelId) {
+  const container = document.getElementById('voice-participants-header');
+  if (!container) return;
+
+  const participants = Store.getVoiceParticipants(channelId);
+  if (!participants.length) { container.innerHTML = ''; return; }
+
+  container.innerHTML = participants.map(uid => {
+    const name = uid === Store.user.id ? (Store.user.username || 'Ben') : (Store.getUsername(uid) || '?');
+    return `
+      <div class="voice-avatar" data-uid="${uid}"
+           title="${name}"
+           style="width:28px;height:28px;border-radius:50%;background:var(--bg-elevated);border:2px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--color-primary-light);transition:border-color 0.15s">
+        ${name[0].toUpperCase()}
+      </div>
+    `;
+  }).join('');
+
+  // Kendi konuşma algılaması
+  if (voiceMicStream) {
+    setupSpeakingDetection('__me__', voiceMicStream);
+    // Kendi avatar'ını "__me__" data-uid ile güncelle
+    const myEl = container.querySelector(`.voice-avatar[data-uid="${Store.user.id}"]`);
+    if (myEl) myEl.dataset.uid = '__me__';
+  }
+}
+
+function updateVoiceStatusBar(channelId) {
+  // Eski bar varsa kaldır
+  document.getElementById('voice-status-bar')?.remove();
+  if (!channelId) return;
+
+  // Sidebar'ın altına ekle
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+
+  const servers   = Store.servers;
+  const serverId  = Store.activeServerId;
+  const channels  = serverId ? Store.getChannels(serverId) : [];
+  const channel   = channels.find(c => c.id === channelId);
+  const chName    = channel?.name || 'sesli kanal';
+
+  const bar = document.createElement('div');
+  bar.id = 'voice-status-bar';
+  bar.style.cssText = `
+    padding:10px 14px;background:var(--bg-overlay);border-top:1px solid var(--border-color);
+    display:flex;align-items:center;gap:8px;flex-shrink:0;
+  `;
+  bar.innerHTML = `
+    <div style="flex:1;overflow:hidden">
+      <div style="font-size:12px;font-weight:600;color:var(--color-success)">🎙️ Sesli bağlantı aktif</div>
+      <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#${chName}</div>
+    </div>
+    <button onclick="toggleVoiceMute()" id="voice-mute-btn" class="btn-icon" title="Mikrofon" style="font-size:16px">🎤</button>
+    <button onclick="leaveVoice()" class="btn-icon" title="Ayrıl" style="font-size:16px;color:var(--color-error)">📵</button>
+  `;
+  sidebar.appendChild(bar);
+}
+
+function toggleVoiceMute() {
+  if (!voiceMicStream) return;
+  const track   = voiceMicStream.getAudioTracks()[0];
+  if (!track) return;
+  track.enabled  = !track.enabled;
+  const btn = document.getElementById('voice-mute-btn');
+  if (btn) btn.textContent = track.enabled ? '🎤' : '🔇';
+
+  // Diğer peer'lara da mute durumu gönder (opsiyonel bilgi)
+  showToast(track.enabled ? 'Mikrofon açık' : 'Mikrofon kapalı', 'info');
+}
+
+// ── Sesli kanal WS olayları ──────────────────────────────
+Socket.on('voice_participants', async ({ channel_id, user_ids }) => {
+  if (channel_id !== Store.myVoiceChannelId) return;
+  // Mevcut katılımcılara offer gönder
+  for (const uid of user_ids) {
+    if (uid !== Store.user.id) {
+      Store.addVoiceParticipant(channel_id, uid);
+      await sendVoiceOffer(channel_id, uid);
+    }
+  }
+  updateVoiceHeader(channel_id);
+});
+
+Socket.on('voice_user_joined', ({ channel_id, user_id }) => {
+  if (channel_id !== Store.myVoiceChannelId) return;
+  if (user_id === Store.user.id) return;
+  // Karşı taraf bize offer gönderecek, biz hazırlanıyoruz
+  Store.addVoiceParticipant(channel_id, user_id);
+  updateVoiceHeader(channel_id);
+  showToast(`${Store.getUsername(user_id) || 'Biri'} sesli kanala katıldı 🎙️`, 'info');
+});
+
+Socket.on('voice_user_left', ({ channel_id, user_id }) => {
+  cleanupVoicePeer(user_id, channel_id);
+  showToast(`${Store.getUsername(user_id) || 'Biri'} sesli kanaldan ayrıldı`, 'info');
+});
+
+Socket.on('voice_signal', async ({ channel_id, from_user_id, type, data }) => {
+  if (channel_id !== Store.myVoiceChannelId) return;
+
+  if (type === 'offer') {
+    const pc = getOrCreateVoicePeer(from_user_id, channel_id);
+    await pc.setRemoteDescription(data);
+
+    // Bekleyen ICE'ları temizle
+    const pending = window._voiceIcePending?.[from_user_id] || [];
+    for (const c of pending) await pc.addIceCandidate(c).catch(() => {});
+    if (window._voiceIcePending) delete window._voiceIcePending[from_user_id];
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    Socket.send('voice_signal', { channel_id, target_user_id: from_user_id, type: 'answer', data: answer });
+
+  } else if (type === 'answer') {
+    const pc = voicePeers[from_user_id];
+    if (pc) {
+      await pc.setRemoteDescription(data);
+      const pending = window._voiceIcePending?.[from_user_id] || [];
+      for (const c of pending) await pc.addIceCandidate(c).catch(() => {});
+      if (window._voiceIcePending) delete window._voiceIcePending[from_user_id];
+    }
+
+  } else if (type === 'ice_candidate') {
+    const pc = voicePeers[from_user_id];
+    if (pc && pc.remoteDescription) {
+      await pc.addIceCandidate(data).catch(() => {});
+    } else {
+      if (!window._voiceIcePending) window._voiceIcePending = {};
+      if (!window._voiceIcePending[from_user_id]) window._voiceIcePending[from_user_id] = [];
+      window._voiceIcePending[from_user_id].push(data);
+    }
+  }
+});
+
+// ── Ekran paylaşımı ──────────────────────────────────────
+
+async function startScreenShare(convId) {
+  // Tarayıcı desteği kontrolü
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    showToast('Tarayıcınız ekran paylaşımını desteklemiyor', 'error');
+    return;
+  }
+
+  try {
+    // Ekranı yakala
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 },
+        cursor: 'always',
+      },
+      audio: false, // sistem sesini istemiyoruz (güvenilmez)
+    });
+
+    // Mikrofonu da dene (opsiyonel — hata olsa bile devam et)
+    let audioStream = null;
+    try {
+      audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch { /* mikrofon yoksa önemli değil */ }
+
+    // Eğer aktif bir P2P bağlantısı varsa, video track'i değiştir
+    if (peerConnection && peerConnection.connectionState === 'connected') {
+      const screenTrack = screenStream.getVideoTracks()[0];
+      const sender = peerConnection.getSenders().find(s => s.track?.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(screenTrack);
+        localStream = screenStream;
+        showToast('Ekran paylaşımı başlatıldı', 'success');
+
+        // Mevcut modal varsa güncelle
+        const statusEl = document.getElementById('call-status');
+        if (statusEl) statusEl.textContent = '🖥️ Ekran paylaşılıyor';
+        const endBtn = document.getElementById('end-call-btn');
+        if (endBtn) endBtn.textContent = '🖥️ Paylaşımı Durdur';
+      }
+
+      screenTrack.addEventListener('ended', () => {
+        endCall();
+        showToast('Ekran paylaşımı durduruldu', 'info');
+      });
+      return;
+    }
+
+    // Yeni bağlantı — ekran + (varsa) ses
+    localStream = new MediaStream();
+    screenStream.getVideoTracks().forEach(t => localStream.addTrack(t));
+    if (audioStream) audioStream.getAudioTracks().forEach(t => localStream.addTrack(t));
+
+    showCallModal(convId, 'screen', true);
+
+    peerConnection = new RTCPeerConnection(rtcConfig);
+    localStream.getTracks().forEach(t => peerConnection.addTrack(t, localStream));
+
+    peerConnection.onicecandidate = (ev) => {
+      if (ev.candidate) Socket.send('call_signal', {
+        conversation_id: convId,
+        type: 'ice_candidate',
+        data: ev.candidate,
+      });
+    };
+
+    peerConnection.ontrack = (ev) => {
+      const rv = document.getElementById('remote-video');
+      if (rv) rv.srcObject = ev.streams[0];
+    };
+
+    // Bağlantı durumu değişince status güncelle
+    peerConnection.onconnectionstatechange = () => {
+      const statusEl = document.getElementById('call-status');
+      if (!statusEl) return;
+      if (peerConnection.connectionState === 'connected') {
+        statusEl.textContent = '🖥️ Ekran paylaşılıyor';
+      } else if (peerConnection.connectionState === 'failed') {
+        statusEl.textContent = '⚠️ Bağlantı kesildi';
+      }
+    };
+
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    Socket.send('call_signal', {
+      conversation_id: convId,
+      type: 'offer',
+      data: offer,
+      call_type: 'screen',
+    });
+
+    // Tarayıcının natif "Paylaşımı Durdur" butonuna basınca otomatik kapat
+    screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+      endCall();
+      showToast('Ekran paylaşımı durduruldu', 'info');
+    });
+
+  } catch (err) {
+    if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
+      // Kullanıcı iptal etti — sessizce geç
+      return;
+    }
+    console.error('Ekran paylaşımı hatası:', err);
+    showToast('Ekran paylaşımı başlatılamadı: ' + (err.message || ''), 'error');
+  }
+}
+
+function toggleScreenAudio() {
+  if (!localStream) return;
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (!audioTrack) {
+    showToast('Mikrofon bulunamadı', 'error');
+    return;
+  }
+  audioTrack.enabled = !audioTrack.enabled;
+  const btn = document.getElementById('screen-mic-btn');
+  if (btn) btn.textContent = audioTrack.enabled ? '🎤 Ses' : '🔇 Sessiz';
 }
 
 // WebRTC sinyal mesajlarını dinle

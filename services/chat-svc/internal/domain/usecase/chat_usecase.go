@@ -44,4 +44,22 @@ type ChatUsecase interface {
 	// Hikaye işlemleri
 	CreateStory(ctx context.Context, userID, storyType, content, caption string) (*entity.Story, error)
 	GetStories(ctx context.Context, userIDs []string) ([]*entity.Story, error)
+
+	// Server işlemleri
+	CreateServer(ctx context.Context, name, iconURL, ownerID string) (*entity.Server, error)
+	GetServer(ctx context.Context, serverID, userID string) (*entity.Server, error)
+	ListUserServers(ctx context.Context, userID string) ([]*entity.Server, error)
+	JoinServer(ctx context.Context, inviteCode, userID string) (*entity.Server, error)
+	DeleteServer(ctx context.Context, serverID, userID string) error
+
+	// Kanal işlemleri
+	CreateChannel(ctx context.Context, serverID, name, topic, ownerID string) (*entity.Channel, error)
+	ListChannels(ctx context.Context, serverID, userID string) ([]*entity.Channel, error)
+	DeleteChannel(ctx context.Context, channelID, userID string) error
+	GetChannelConversation(ctx context.Context, channelID string) (string, error)
+
+	// Üye & rol işlemleri
+	ListServerMembers(ctx context.Context, serverID, requesterID string) ([]*entity.ServerMember, error)
+	SetMemberRole(ctx context.Context, serverID, requesterID, targetUserID, role string) error
+	KickMember(ctx context.Context, serverID, requesterID, targetUserID string) error
 }

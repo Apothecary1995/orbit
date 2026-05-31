@@ -12,6 +12,13 @@ const Store = {
     messages:        {},   // convId → mesaj listesi
     onlineUsers:     new Set(),
     userMap:         new Map(), // userId → username, '~'+username → userId
+    servers:          [],
+    activeServerId:   null,
+    channels:         {},   // serverId → kanal listesi
+    activeChannelId:  null,
+    mode:             'dm', // 'dm' | 'server'
+    myVoiceChannelId: null,
+    voiceParticipants: {}, // channelId → [userId]
   },
 
   // ── Auth ───────────────────────────────────────────────
@@ -98,6 +105,39 @@ const Store = {
   },
   getUserId(username)  { return this._state.userMap.get('~' + username); },
   getUsername(id)      { return this._state.userMap.get(id); },
+
+  // ── Server & kanal yönetimi ────────────────────────────
+  get servers()         { return this._state.servers; },
+  get activeServerId()  { return this._state.activeServerId; },
+  get activeChannelId() { return this._state.activeChannelId; },
+  get mode()            { return this._state.mode; },
+
+  setServers(servers)   { this._state.servers = servers; },
+  setActiveServer(id)   { this._state.activeServerId = id; this._state.mode = id ? 'server' : 'dm'; },
+  setActiveChannel(id)  { this._state.activeChannelId = id; },
+  setMode(mode)         { this._state.mode = mode; },
+
+  // ── Sesli kanal ────────────────────────────────────────
+  get myVoiceChannelId()  { return this._state.myVoiceChannelId; },
+  setMyVoiceChannel(id)   { this._state.myVoiceChannelId = id; },
+  getVoiceParticipants(channelId) { return this._state.voiceParticipants[channelId] || []; },
+  setVoiceParticipants(channelId, users) { this._state.voiceParticipants[channelId] = users; },
+  addVoiceParticipant(channelId, userId) {
+    if (!this._state.voiceParticipants[channelId]) this._state.voiceParticipants[channelId] = [];
+    if (!this._state.voiceParticipants[channelId].includes(userId))
+      this._state.voiceParticipants[channelId].push(userId);
+  },
+  removeVoiceParticipant(channelId, userId) {
+    if (this._state.voiceParticipants[channelId])
+      this._state.voiceParticipants[channelId] = this._state.voiceParticipants[channelId].filter(id => id !== userId);
+  },
+
+  getChannels(serverId) { return this._state.channels[serverId] || []; },
+  setChannels(serverId, channels) { this._state.channels[serverId] = channels; },
+  addChannel(serverId, channel) {
+    if (!this._state.channels[serverId]) this._state.channels[serverId] = [];
+    this._state.channels[serverId].push(channel);
+  },
 };
 
 // Sayfa açılınca localStorage'dan yükle

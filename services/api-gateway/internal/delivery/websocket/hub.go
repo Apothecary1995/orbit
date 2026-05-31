@@ -19,11 +19,14 @@ type Client struct {
 }
 
 type Hub struct {
-	mu          sync.RWMutex
-	clients     map[string]*Client
-	convMembers map[string][]string
-	authClient  authpb.AuthServiceClient
-	Push        *push.Manager
+	mu           sync.RWMutex
+	clients      map[string]*Client
+	convMembers  map[string][]string
+	authClient   authpb.AuthServiceClient
+	Push         *push.Manager
+
+	voiceMu      sync.RWMutex
+	voiceChannels map[string]map[string]bool // channelID → set of userIDs
 }
 
 type OutgoingMessage struct {
@@ -33,10 +36,11 @@ type OutgoingMessage struct {
 
 func NewHub(authClient authpb.AuthServiceClient, pushMgr *push.Manager) *Hub {
 	return &Hub{
-		clients:     make(map[string]*Client),
-		convMembers: make(map[string][]string),
-		authClient:  authClient,
-		Push:        pushMgr,
+		clients:       make(map[string]*Client),
+		convMembers:   make(map[string][]string),
+		authClient:    authClient,
+		Push:          pushMgr,
+		voiceChannels: make(map[string]map[string]bool),
 	}
 }
 
@@ -61,6 +65,9 @@ func (h *Hub) Register(client *Client) {
 }
 
 func (h *Hub) Unregister(userID string) {
+	// Sesli kanallardan temizle — mu kilidi olmadan, kendi voiceMu kilidiyle
+	h.cleanupVoiceForUser(userID)
+
 	offline, _ := json.Marshal(OutgoingMessage{
 		Type:    "presence",
 		Payload: map[string]interface{}{"user_id": userID, "online": false},
@@ -85,6 +92,84 @@ func (h *Hub) Unregister(userID string) {
 			h.authClient.UpdateLastSeen(context.Background(), &authpb.UpdateLastSeenRequest{UserId: userID})
 		}()
 	}
+}
+
+// cleanupVoiceForUser kullanıcıyı tüm sesli kanallardan çıkarır.
+func (h *Hub) cleanupVoiceForUser(userID string) {
+	type entry struct {
+		channelID string
+		remaining []string
+	}
+
+	h.voiceMu.Lock()
+	var affected []entry
+	for channelID, users := range h.voiceChannels {
+		if !users[userID] {
+			continue
+		}
+		delete(users, userID)
+		rem := make([]string, 0, len(users))
+		for uid := range users {
+			rem = append(rem, uid)
+		}
+		affected = append(affected, entry{channelID, rem})
+	}
+	h.voiceMu.Unlock()
+
+	// Kilit dışında bildir
+	for _, e := range affected {
+		for _, uid := range e.remaining {
+			h.SendToUser(uid, OutgoingMessage{
+				Type: "voice_user_left",
+				Payload: map[string]interface{}{
+					"channel_id": e.channelID,
+					"user_id":    userID,
+				},
+			})
+		}
+	}
+}
+
+// ── Sesli kanal yardımcıları ─────────────────────────────
+
+// voiceJoin kullanıcıyı kanala ekler; mevcut katılımcıları döner.
+func (h *Hub) voiceJoin(channelID, userID string) []string {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	if h.voiceChannels[channelID] == nil {
+		h.voiceChannels[channelID] = make(map[string]bool)
+	}
+	existing := make([]string, 0, len(h.voiceChannels[channelID]))
+	for uid := range h.voiceChannels[channelID] {
+		existing = append(existing, uid)
+	}
+	h.voiceChannels[channelID][userID] = true
+	return existing
+}
+
+// voiceLeave kullanıcıyı kanaldan çıkarır; kalan katılımcıları döner.
+func (h *Hub) voiceLeave(channelID, userID string) []string {
+	h.voiceMu.Lock()
+	defer h.voiceMu.Unlock()
+	if users, ok := h.voiceChannels[channelID]; ok {
+		delete(users, userID)
+	}
+	remaining := make([]string, 0)
+	for uid := range h.voiceChannels[channelID] {
+		remaining = append(remaining, uid)
+	}
+	return remaining
+}
+
+// voiceParticipants kanalın mevcut katılımcılarını döner.
+func (h *Hub) voiceParticipants(channelID string) []string {
+	h.voiceMu.RLock()
+	defer h.voiceMu.RUnlock()
+	out := make([]string, 0, len(h.voiceChannels[channelID]))
+	for uid := range h.voiceChannels[channelID] {
+		out = append(out, uid)
+	}
+	return out
 }
 
 // GetOnlineUserIDs returns a snapshot of currently connected user IDs, excluding the caller.
@@ -303,6 +388,67 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+		// ── Sesli kanal mesajları ────────────────────────────
+
+		case "join_voice":
+			channelID, _ := payloadMap["channel_id"].(string)
+			if channelID == "" {
+				continue
+			}
+			existing := h.voiceJoin(channelID, userID)
+
+			// Katılan kullanıcıya mevcut listesi gönder
+			h.SendToUser(userID, OutgoingMessage{
+				Type: "voice_participants",
+				Payload: map[string]interface{}{
+					"channel_id": channelID,
+					"user_ids":   existing,
+				},
+			})
+
+			// Mevcut katılımcılara yeni kullanıcıyı bildir
+			for _, uid := range existing {
+				h.SendToUser(uid, OutgoingMessage{
+					Type: "voice_user_joined",
+					Payload: map[string]interface{}{
+						"channel_id": channelID,
+						"user_id":    userID,
+					},
+				})
+			}
+
+		case "leave_voice":
+			channelID, _ := payloadMap["channel_id"].(string)
+			if channelID == "" {
+				continue
+			}
+			remaining := h.voiceLeave(channelID, userID)
+			for _, uid := range remaining {
+				h.SendToUser(uid, OutgoingMessage{
+					Type: "voice_user_left",
+					Payload: map[string]interface{}{
+						"channel_id": channelID,
+						"user_id":    userID,
+					},
+				})
+			}
+
+		case "voice_signal":
+			// Hedef kullanıcıya yönlendir (P2P sinyalizasyon)
+			targetUserID, _ := payloadMap["target_user_id"].(string)
+			channelID, _ := payloadMap["channel_id"].(string)
+			if targetUserID == "" || channelID == "" {
+				continue
+			}
+			h.SendToUser(targetUserID, OutgoingMessage{
+				Type: "voice_signal",
+				Payload: map[string]interface{}{
+					"channel_id":   channelID,
+					"from_user_id": userID,
+					"type":         payloadMap["type"],
+					"data":         payloadMap["data"],
+				},
+			})
 		}
 	}
 }

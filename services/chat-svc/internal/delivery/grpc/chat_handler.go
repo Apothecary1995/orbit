@@ -184,3 +184,145 @@ func (h *ChatHandler) DeleteMessage(ctx context.Context, req *pb.DeleteMessageRe
 	}
 	return &pb.DeleteMessageResponse{Success: true}, nil
 }
+
+// ── Server handler'ları ──────────────────────────────────
+
+func (h *ChatHandler) CreateServer(ctx context.Context, req *pb.CreateServerRequest) (*pb.CreateServerResponse, error) {
+	if req.Name == "" || req.OwnerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "name ve owner_id zorunlu")
+	}
+	s, err := h.chatUC.CreateServer(ctx, req.Name, req.IconUrl, req.OwnerId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.CreateServerResponse{Server: serverToPb(s)}, nil
+}
+
+func (h *ChatHandler) GetServer(ctx context.Context, req *pb.GetServerRequest) (*pb.GetServerResponse, error) {
+	s, err := h.chatUC.GetServer(ctx, req.ServerId, req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	return &pb.GetServerResponse{Server: serverToPb(s)}, nil
+}
+
+func (h *ChatHandler) ListUserServers(ctx context.Context, req *pb.ListUserServersRequest) (*pb.ListUserServersResponse, error) {
+	servers, err := h.chatUC.ListUserServers(ctx, req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	var pbServers []*pb.Server
+	for _, s := range servers {
+		pbServers = append(pbServers, serverToPb(s))
+	}
+	return &pb.ListUserServersResponse{Servers: pbServers}, nil
+}
+
+func (h *ChatHandler) JoinServer(ctx context.Context, req *pb.JoinServerRequest) (*pb.JoinServerResponse, error) {
+	if req.InviteCode == "" || req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "invite_code ve user_id zorunlu")
+	}
+	s, err := h.chatUC.JoinServer(ctx, req.InviteCode, req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	return &pb.JoinServerResponse{Server: serverToPb(s)}, nil
+}
+
+func (h *ChatHandler) DeleteServer(ctx context.Context, req *pb.DeleteServerRequest) (*pb.DeleteServerResponse, error) {
+	if err := h.chatUC.DeleteServer(ctx, req.ServerId, req.UserId); err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	return &pb.DeleteServerResponse{Success: true}, nil
+}
+
+// ── Kanal handler'ları ───────────────────────────────────
+
+func (h *ChatHandler) CreateChannel(ctx context.Context, req *pb.CreateChannelRequest) (*pb.CreateChannelResponse, error) {
+	if req.Name == "" || req.ServerId == "" || req.OwnerId == "" {
+		return nil, status.Error(codes.InvalidArgument, "server_id, name ve owner_id zorunlu")
+	}
+	ch, err := h.chatUC.CreateChannel(ctx, req.ServerId, req.Name, req.Topic, req.OwnerId)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.CreateChannelResponse{Channel: channelToPb(ch)}, nil
+}
+
+func (h *ChatHandler) ListChannels(ctx context.Context, req *pb.ListChannelsRequest) (*pb.ListChannelsResponse, error) {
+	channels, err := h.chatUC.ListChannels(ctx, req.ServerId, req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	var pbChannels []*pb.Channel
+	for _, ch := range channels {
+		pbChannels = append(pbChannels, channelToPb(ch))
+	}
+	return &pb.ListChannelsResponse{Channels: pbChannels}, nil
+}
+
+func (h *ChatHandler) DeleteChannel(ctx context.Context, req *pb.DeleteChannelRequest) (*pb.DeleteChannelResponse, error) {
+	if err := h.chatUC.DeleteChannel(ctx, req.ChannelId, req.UserId); err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	return &pb.DeleteChannelResponse{Success: true}, nil
+}
+
+func (h *ChatHandler) GetChannelConversation(ctx context.Context, req *pb.GetChannelConversationRequest) (*pb.GetChannelConversationResponse, error) {
+	convID, err := h.chatUC.GetChannelConversation(ctx, req.ChannelId)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, err.Error())
+	}
+	return &pb.GetChannelConversationResponse{ConversationId: convID}, nil
+}
+
+// ── Üye & rol handler'ları ───────────────────────────────
+
+func (h *ChatHandler) ListServerMembers(ctx context.Context, req *pb.ListServerMembersRequest) (*pb.ListServerMembersResponse, error) {
+	members, err := h.chatUC.ListServerMembers(ctx, req.ServerId, req.RequesterId)
+	if err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	var pbMembers []*pb.ServerMemberInfo
+	for _, m := range members {
+		pbMembers = append(pbMembers, &pb.ServerMemberInfo{
+			UserId:   m.UserID,
+			Role:     string(m.Role),
+			JoinedAt: m.JoinedAt.Format(time.RFC3339),
+		})
+	}
+	return &pb.ListServerMembersResponse{Members: pbMembers}, nil
+}
+
+func (h *ChatHandler) SetMemberRole(ctx context.Context, req *pb.SetMemberRoleRequest) (*pb.SetMemberRoleResponse, error) {
+	if err := h.chatUC.SetMemberRole(ctx, req.ServerId, req.RequesterId, req.TargetUserId, req.Role); err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	return &pb.SetMemberRoleResponse{Success: true}, nil
+}
+
+func (h *ChatHandler) KickMember(ctx context.Context, req *pb.KickMemberRequest) (*pb.KickMemberResponse, error) {
+	if err := h.chatUC.KickMember(ctx, req.ServerId, req.RequesterId, req.TargetUserId); err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+	return &pb.KickMemberResponse{Success: true}, nil
+}
+
+// ── Yardımcı dönüştürücüler ──────────────────────────────
+
+func serverToPb(s *entity.Server) *pb.Server {
+	return &pb.Server{
+		Id: s.ID, Name: s.Name, IconUrl: s.IconURL,
+		OwnerId: s.OwnerID, InviteCode: s.InviteCode,
+		CreatedAt: s.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func channelToPb(ch *entity.Channel) *pb.Channel {
+	return &pb.Channel{
+		Id: ch.ID, ServerId: ch.ServerID, Name: ch.Name, Topic: ch.Topic,
+		Type: ch.Type, Position: int32(ch.Position),
+		ConversationId: ch.ConversationID,
+		CreatedAt:      ch.CreatedAt.Format(time.RFC3339),
+	}
+}

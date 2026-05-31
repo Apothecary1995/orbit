@@ -13,6 +13,24 @@ service ChatService {
   rpc DeleteMessage(DeleteMessageRequest)           returns (DeleteMessageResponse);
   rpc CreateStory(CreateStoryRequest)               returns (CreateStoryResponse);
   rpc GetStories(GetStoriesRequest)                 returns (GetStoriesResponse);
+
+  // Server yönetimi
+  rpc CreateServer(CreateServerRequest)             returns (CreateServerResponse);
+  rpc GetServer(GetServerRequest)                   returns (GetServerResponse);
+  rpc ListUserServers(ListUserServersRequest)        returns (ListUserServersResponse);
+  rpc JoinServer(JoinServerRequest)                 returns (JoinServerResponse);
+  rpc DeleteServer(DeleteServerRequest)             returns (DeleteServerResponse);
+
+  // Kanal yönetimi
+  rpc CreateChannel(CreateChannelRequest)           returns (CreateChannelResponse);
+  rpc ListChannels(ListChannelsRequest)             returns (ListChannelsResponse);
+  rpc DeleteChannel(DeleteChannelRequest)           returns (DeleteChannelResponse);
+  rpc GetChannelConversation(GetChannelConversationRequest) returns (GetChannelConversationResponse);
+
+  // Üye & rol yönetimi
+  rpc ListServerMembers(ListServerMembersRequest)   returns (ListServerMembersResponse);
+  rpc SetMemberRole(SetMemberRoleRequest)           returns (SetMemberRoleResponse);
+  rpc KickMember(KickMemberRequest)                 returns (KickMemberResponse);
 }
 
 message SendMessageRequest {
@@ -61,3 +79,60 @@ message Conversation {
   string id = 1; string type = 2; string name = 3;
   string avatar_url = 4; string created_by = 5; string created_at = 6;
 }
+
+// ── Server mesajları ──────────────────────────────────────
+message Server {
+  string id          = 1;
+  string name        = 2;
+  string icon_url    = 3;
+  string owner_id    = 4;
+  string invite_code = 5;
+  string created_at  = 6;
+}
+
+message Channel {
+  string id              = 1;
+  string server_id       = 2;
+  string name            = 3;
+  string topic           = 4;
+  string type            = 5;
+  int32  position        = 6;
+  string conversation_id = 7;
+  string created_at      = 8;
+}
+
+message CreateServerRequest  { string name = 1; string icon_url = 2; string owner_id = 3; }
+message CreateServerResponse { Server server = 1; }
+message GetServerRequest     { string server_id = 1; string user_id = 2; }
+message GetServerResponse    { Server server = 1; }
+message ListUserServersRequest  { string user_id = 1; }
+message ListUserServersResponse { repeated Server servers = 1; }
+message JoinServerRequest    { string invite_code = 1; string user_id = 2; }
+message JoinServerResponse   { Server server = 1; }
+message DeleteServerRequest  { string server_id = 1; string user_id = 2; }
+message DeleteServerResponse { bool success = 1; }
+
+message CreateChannelRequest  { string server_id = 1; string name = 2; string topic = 3; string owner_id = 4; }
+message CreateChannelResponse { Channel channel = 1; }
+message ListChannelsRequest   { string server_id = 1; string user_id = 2; }
+message ListChannelsResponse  { repeated Channel channels = 1; }
+message DeleteChannelRequest  { string channel_id = 1; string user_id = 2; }
+message DeleteChannelResponse { bool success = 1; }
+message GetChannelConversationRequest  { string channel_id = 1; }
+message GetChannelConversationResponse { string conversation_id = 1; }
+
+// ── Üye & rol mesajları ───────────────────────────────────
+message ServerMemberInfo {
+  string user_id   = 1;
+  string role      = 2;
+  string joined_at = 3;
+}
+
+message ListServerMembersRequest  { string server_id = 1; string requester_id = 2; }
+message ListServerMembersResponse { repeated ServerMemberInfo members = 1; }
+
+message SetMemberRoleRequest  { string server_id = 1; string requester_id = 2; string target_user_id = 3; string role = 4; }
+message SetMemberRoleResponse { bool success = 1; }
+
+message KickMemberRequest  { string server_id = 1; string requester_id = 2; string target_user_id = 3; }
+message KickMemberResponse { bool success = 1; }

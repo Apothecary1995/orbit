@@ -41,6 +41,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/chat/conversations/", h.conversationDetail)
 	mux.HandleFunc("/api/v1/media/upload", h.uploadMedia)
 
+	// Server & kanal route'ları
+	mux.HandleFunc("/api/v1/servers", h.servers)
+	mux.HandleFunc("/api/v1/servers/", h.serverDetail)
+	mux.HandleFunc("/api/v1/channels/", h.channelDetail)
 }
 
 // ── Auth handler'ları ────────────────────────────────────
@@ -492,6 +496,310 @@ func (h *Handler) pushSubscribe(w http.ResponseWriter, r *http.Request) {
 	}
 	h.hub.Push.Save(req.UserID, sub)
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// ── Server handler'ları ──────────────────────────────────
+
+// GET  /api/v1/servers?user_id=X  → server listesi
+// POST /api/v1/servers             → server oluştur
+func (h *Handler) servers(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		userID := r.URL.Query().Get("user_id")
+		if userID == "" {
+			writeError(w, http.StatusBadRequest, "user_id zorunlu")
+			return
+		}
+		resp, err := h.clients.ChatService.ListUserServers(r.Context(), &chatpb.ListUserServersRequest{UserId: userID})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"servers": resp.Servers})
+
+	case http.MethodPost:
+		var req struct {
+			Name    string `json:"name"`
+			IconURL string `json:"icon_url"`
+			OwnerID string `json:"owner_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.OwnerID == "" {
+			writeError(w, http.StatusBadRequest, "name ve owner_id zorunlu")
+			return
+		}
+		resp, err := h.clients.ChatService.CreateServer(r.Context(), &chatpb.CreateServerRequest{
+			Name: req.Name, IconUrl: req.IconURL, OwnerId: req.OwnerID,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]interface{}{"server": resp.Server})
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
+	}
+}
+
+// /api/v1/servers/{id}
+// /api/v1/servers/{id}/channels
+// /api/v1/servers/join
+func (h *Handler) serverDetail(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/servers/")
+	parts := strings.SplitN(path, "/", 2)
+	serverID := parts[0]
+	sub := ""
+	if len(parts) == 2 {
+		sub = parts[1]
+	}
+
+	// POST /api/v1/servers/join
+	if serverID == "join" && r.Method == http.MethodPost {
+		var req struct {
+			InviteCode string `json:"invite_code"`
+			UserID     string `json:"user_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.InviteCode == "" || req.UserID == "" {
+			writeError(w, http.StatusBadRequest, "invite_code ve user_id zorunlu")
+			return
+		}
+		resp, err := h.clients.ChatService.JoinServer(r.Context(), &chatpb.JoinServerRequest{
+			InviteCode: req.InviteCode, UserId: req.UserID,
+		})
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"server": resp.Server})
+		return
+	}
+
+	switch sub {
+	case "":
+		switch r.Method {
+		case http.MethodGet:
+			userID := r.URL.Query().Get("user_id")
+			resp, err := h.clients.ChatService.GetServer(r.Context(), &chatpb.GetServerRequest{
+				ServerId: serverID, UserId: userID,
+			})
+			if err != nil {
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"server": resp.Server})
+		case http.MethodDelete:
+			var req struct {
+				UserID string `json:"user_id"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			_, err := h.clients.ChatService.DeleteServer(r.Context(), &chatpb.DeleteServerRequest{
+				ServerId: serverID, UserId: req.UserID,
+			})
+			if err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
+		}
+
+	case "members":
+		// /api/v1/servers/{id}/members
+		// /api/v1/servers/{id}/members/{userId}/role  (PUT)
+		// /api/v1/servers/{id}/members/{userId}       (DELETE = kick)
+		memberPath := strings.TrimPrefix(r.URL.Path, "/api/v1/servers/"+serverID+"/members")
+		memberPath = strings.TrimPrefix(memberPath, "/")
+		memberParts := strings.SplitN(memberPath, "/", 2)
+		targetUserID := ""
+		memberSub := ""
+		if len(memberParts) >= 1 {
+			targetUserID = memberParts[0]
+		}
+		if len(memberParts) == 2 {
+			memberSub = memberParts[1]
+		}
+
+		switch {
+		case targetUserID == "" && r.Method == http.MethodGet:
+			// GET /api/v1/servers/{id}/members?requester_id=X
+			requesterID := r.URL.Query().Get("requester_id")
+			resp, err := h.clients.ChatService.ListServerMembers(r.Context(), &chatpb.ListServerMembersRequest{
+				ServerId: serverID, RequesterId: requesterID,
+			})
+			if err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"members": resp.Members})
+
+		case targetUserID != "" && memberSub == "role" && r.Method == http.MethodPut:
+			// PUT /api/v1/servers/{id}/members/{userId}/role
+			var req struct {
+				RequesterID string `json:"requester_id"`
+				Role        string `json:"role"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "geçersiz istek")
+				return
+			}
+			_, err := h.clients.ChatService.SetMemberRole(r.Context(), &chatpb.SetMemberRoleRequest{
+				ServerId: serverID, RequesterId: req.RequesterID, TargetUserId: targetUserID, Role: req.Role,
+			})
+			if err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+
+		case targetUserID != "" && r.Method == http.MethodDelete:
+			// DELETE /api/v1/servers/{id}/members/{userId}
+			var req struct {
+				RequesterID string `json:"requester_id"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			_, err := h.clients.ChatService.KickMember(r.Context(), &chatpb.KickMemberRequest{
+				ServerId: serverID, RequesterId: req.RequesterID, TargetUserId: targetUserID,
+			})
+			if err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
+		}
+
+	case "channels":
+		switch r.Method {
+		case http.MethodGet:
+			userID := r.URL.Query().Get("user_id")
+			resp, err := h.clients.ChatService.ListChannels(r.Context(), &chatpb.ListChannelsRequest{
+				ServerId: serverID, UserId: userID,
+			})
+			if err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"channels": resp.Channels})
+		case http.MethodPost:
+			var req struct {
+				Name    string `json:"name"`
+				Topic   string `json:"topic"`
+				OwnerID string `json:"owner_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.OwnerID == "" {
+				writeError(w, http.StatusBadRequest, "name ve owner_id zorunlu")
+				return
+			}
+			resp, err := h.clients.ChatService.CreateChannel(r.Context(), &chatpb.CreateChannelRequest{
+				ServerId: serverID, Name: req.Name, Topic: req.Topic, OwnerId: req.OwnerID,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusCreated, map[string]interface{}{"channel": resp.Channel})
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
+		}
+
+	default:
+		writeError(w, http.StatusNotFound, "bulunamadı")
+	}
+}
+
+// /api/v1/channels/{channelId}/messages
+// /api/v1/channels/{channelId}  (DELETE)
+func (h *Handler) channelDetail(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/channels/")
+	parts := strings.SplitN(path, "/", 2)
+	channelID := parts[0]
+	sub := ""
+	if len(parts) == 2 {
+		sub = parts[1]
+	}
+
+	if sub == "" && r.Method == http.MethodDelete {
+		var req struct {
+			UserID string `json:"user_id"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		_, err := h.clients.ChatService.DeleteChannel(r.Context(), &chatpb.DeleteChannelRequest{
+			ChannelId: channelID, UserId: req.UserID,
+		})
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		return
+	}
+
+	if sub != "messages" {
+		writeError(w, http.StatusNotFound, "bulunamadı")
+		return
+	}
+
+	// Kanalın backing conversation_id'sini al
+	convResp, err := h.clients.ChatService.GetChannelConversation(r.Context(), &chatpb.GetChannelConversationRequest{
+		ChannelId: channelID,
+	})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "kanal bulunamadı")
+		return
+	}
+	convID := convResp.ConversationId
+
+	switch r.Method {
+	case http.MethodGet:
+		resp, err := h.clients.ChatService.GetHistory(r.Context(), &chatpb.GetHistoryRequest{
+			ConversationId: convID, Limit: 50, Offset: 0,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"messages": resp.Messages})
+
+	case http.MethodPost:
+		var req struct {
+			SenderID string `json:"sender_id"`
+			Content  string `json:"content"`
+			Type     string `json:"type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "geçersiz istek")
+			return
+		}
+		if req.Type == "" {
+			req.Type = "text"
+		}
+		resp, err := h.clients.ChatService.SendMessage(r.Context(), &chatpb.SendMessageRequest{
+			ConversationId: convID, SenderId: req.SenderID, Content: req.Content, Type: req.Type,
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		h.hub.BroadcastToConv(convID, map[string]interface{}{
+			"id":              resp.MessageId,
+			"conversation_id": convID,
+			"channel_id":      channelID,
+			"sender_id":       req.SenderID,
+			"content":         req.Content,
+			"type":            req.Type,
+			"status":          "sent",
+			"created_at":      resp.CreatedAt,
+		})
+		writeJSON(w, http.StatusCreated, map[string]interface{}{
+			"message_id": resp.MessageId, "created_at": resp.CreatedAt,
+		})
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
+	}
 }
 
 func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
