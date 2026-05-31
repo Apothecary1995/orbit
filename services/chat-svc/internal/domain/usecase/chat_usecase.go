@@ -53,7 +53,7 @@ type ChatUsecase interface {
 	DeleteServer(ctx context.Context, serverID, userID string) error
 
 	// Kanal işlemleri
-	CreateChannel(ctx context.Context, serverID, name, topic, ownerID string) (*entity.Channel, error)
+	CreateChannel(ctx context.Context, serverID, name, topic, ownerID, channelType string) (*entity.Channel, error)
 	ListChannels(ctx context.Context, serverID, userID string) ([]*entity.Channel, error)
 	DeleteChannel(ctx context.Context, channelID, userID string) error
 	GetChannelConversation(ctx context.Context, channelID string) (string, error)

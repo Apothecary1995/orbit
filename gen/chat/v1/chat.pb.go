@@ -2016,6 +2016,7 @@ type CreateChannelRequest struct {
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Topic         string                 `protobuf:"bytes,3,opt,name=topic,proto3" json:"topic,omitempty"`
 	OwnerId       string                 `protobuf:"bytes,4,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	Type          string                 `protobuf:"bytes,5,opt,name=type,proto3" json:"type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2074,6 +2075,13 @@ func (x *CreateChannelRequest) GetTopic() string {
 func (x *CreateChannelRequest) GetOwnerId() string {
 	if x != nil {
 		return x.OwnerId
+	}
+	return ""
+}
+
+func (x *CreateChannelRequest) GetType() string {
+	if x != nil {
+		return x.Type
 	}
 	return ""
 }
@@ -2924,12 +2932,13 @@ const file_chat_v1_chat_proto_rawDesc = "" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"0\n" +
 	"\x14DeleteServerResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"x\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"\x8c\x01\n" +
 	"\x14CreateChannelRequest\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05topic\x18\x03 \x01(\tR\x05topic\x12\x19\n" +
-	"\bowner_id\x18\x04 \x01(\tR\aownerId\"C\n" +
+	"\bowner_id\x18\x04 \x01(\tR\aownerId\x12\x12\n" +
+	"\x04type\x18\x05 \x01(\tR\x04type\"C\n" +
 	"\x15CreateChannelResponse\x12*\n" +
 	"\achannel\x18\x01 \x01(\v2\x10.chat.v1.ChannelR\achannel\"K\n" +
 	"\x13ListChannelsRequest\x12\x1b\n" +

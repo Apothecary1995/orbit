@@ -1554,7 +1554,7 @@ function renderServerIcons(servers) {
          style="font-size:14px;font-weight:600">
       ${s.icon_url
         ? `<img src="${s.icon_url}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">`
-        : s.name[0].toUpperCase()}
+        : (s.name?.[0] || '?').toUpperCase()}
     </div>
   `).join('');
 
@@ -1632,26 +1632,75 @@ function renderChannelList(channels, serverId) {
     return;
   }
 
-  list.innerHTML = channels.map(ch => `
-    <div class="conv-item channel-item" data-channel-id="${ch.id}" data-conv-id="${ch.conversation_id}">
+  const textChannels  = channels.filter(c => c.type !== 'voice');
+  const voiceChannels = channels.filter(c => c.type === 'voice');
+
+  const renderText = ch => `
+    <div class="conv-item channel-item" data-channel-id="${ch.id}" data-conv-id="${ch.conversation_id}" data-channel-type="text">
       <span style="color:var(--text-muted);font-size:16px;margin-right:2px">#</span>
       <div class="conv-info">
         <div class="conv-name" style="font-size:14px">${ch.name}</div>
         ${ch.topic ? `<div class="conv-preview" style="font-size:11px">${ch.topic}</div>` : ''}
       </div>
     </div>
-  `).join('');
+  `;
+
+  const renderVoice = ch => `
+    <div class="channel-voice-item" data-channel-id="${ch.id}" data-channel-type="voice"
+         style="padding:4px 12px 2px;border-radius:var(--radius-md);cursor:pointer;transition:background var(--transition)">
+      <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+        <span style="color:var(--text-muted);font-size:16px">🔊</span>
+        <span style="font-size:14px;color:var(--text-normal);flex:1">${ch.name}</span>
+        ${Store.myVoiceChannelId === ch.id
+          ? `<span style="font-size:10px;color:var(--color-success);font-weight:600">● BAĞLI</span>`
+          : ''}
+      </div>
+      <div class="voice-sidebar-participants" id="voice-participants-${ch.id}"
+           style="display:flex;flex-wrap:wrap;gap:4px;padding:2px 0 4px 22px"></div>
+    </div>
+  `;
+
+  let html = '';
+  if (textChannels.length) {
+    html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Metin Kanalları</div>`;
+    html += textChannels.map(renderText).join('');
+  }
+  if (voiceChannels.length) {
+    html += `<div style="padding:6px 12px 2px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Sesli Kanallar</div>`;
+    html += voiceChannels.map(renderVoice).join('');
+  }
+  list.innerHTML = html;
 
   list.querySelectorAll('.channel-item').forEach(el => {
     el.addEventListener('click', () => openChannel(el.dataset.channelId, serverId));
   });
+
+  list.querySelectorAll('.channel-voice-item').forEach(el => {
+    el.addEventListener('mouseenter', () => el.style.background = 'var(--bg-elevated)');
+    el.addEventListener('mouseleave', () => el.style.background = '');
+    el.addEventListener('click', () => {
+      const chId = el.dataset.channelId;
+      if (Store.myVoiceChannelId === chId) {
+        leaveVoice();
+      } else {
+        joinVoice(chId);
+      }
+    });
+  });
+
+  // Mevcut katılımcıları render et (zaten kanaldaysak)
+  voiceChannels.forEach(ch => {
+    const parts = Store.getVoiceParticipants(ch.id);
+    if (parts.length) renderVoiceSidebarParticipants(ch.id, parts);
+  });
 }
 
 async function openChannel(channelId, serverId) {
-  Store.setActiveChannel(channelId);
-
   const channels = Store.getChannels(serverId);
   const channel  = channels.find(c => c.id === channelId);
+  if (channel?.type === 'voice') { joinVoice(channelId); return; }
+
+  Store.setActiveChannel(channelId);
   const convId   = channel?.conversation_id;
 
   // Aktif kanal
@@ -1670,8 +1719,6 @@ async function openChannel(channelId, serverId) {
         ${channel?.topic ? `<span style="color:var(--text-muted);font-size:12px">${channel.topic}</span>` : ''}
       </div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
-        <div id="voice-participants-header" style="display:flex;gap:4px;align-items:center"></div>
-        <button class="btn-icon" id="channel-voice-btn" title="Sesli bağlan">🎙️</button>
         <button class="btn-icon" id="channel-screen-btn" title="Ekran paylaş">🖥️</button>
       </div>
     </div>
@@ -1689,14 +1736,6 @@ async function openChannel(channelId, serverId) {
     const shareConvId = convId || Store.activeConvId;
     if (shareConvId) startScreenShare(shareConvId);
     else showToast('Kanal bağlantısı kurulamadı', 'error');
-  });
-
-  document.getElementById('channel-voice-btn')?.addEventListener('click', () => {
-    if (Store.myVoiceChannelId === channelId) {
-      leaveVoice();
-    } else {
-      joinVoice(channelId);
-    }
   });
 
   const doSend = async () => {
@@ -2004,6 +2043,28 @@ function showCreateChannelModal(serverId) {
   modal.innerHTML = `
     <div class="cp-modal">
       <h3 style="margin-bottom:16px">Kanal Oluştur</h3>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <label style="flex:1;cursor:pointer">
+          <input type="radio" name="ch-type" value="text" checked style="display:none">
+          <div class="ch-type-btn" data-val="text"
+               style="border:2px solid var(--color-primary);border-radius:var(--radius-md);padding:10px;text-align:center;background:var(--bg-elevated)">
+            <div style="font-size:20px">#</div>
+            <div style="font-size:12px;font-weight:600;margin-top:2px">Metin</div>
+            <div style="font-size:11px;color:var(--text-muted)">Mesajlaşma</div>
+          </div>
+        </label>
+        <label style="flex:1;cursor:pointer">
+          <input type="radio" name="ch-type" value="voice" style="display:none">
+          <div class="ch-type-btn" data-val="voice"
+               style="border:2px solid var(--border-color);border-radius:var(--radius-md);padding:10px;text-align:center;background:var(--bg-elevated)">
+            <div style="font-size:20px">🔊</div>
+            <div style="font-size:12px;font-weight:600;margin-top:2px">Sesli</div>
+            <div style="font-size:11px;color:var(--text-muted)">WebRTC ses</div>
+          </div>
+        </label>
+      </div>
+
       <div class="input-group" style="margin-bottom:12px">
         <label class="input-label">Kanal adı</label>
         <input class="input" id="new-channel-name" placeholder="genel" />
@@ -2021,18 +2082,30 @@ function showCreateChannelModal(serverId) {
   `;
   document.body.appendChild(modal);
 
+  // Type seçici görsel toggle
+  modal.querySelectorAll('input[name="ch-type"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      modal.querySelectorAll('.ch-type-btn').forEach(btn => {
+        btn.style.borderColor = btn.dataset.val === radio.value
+          ? 'var(--color-primary)'
+          : 'var(--border-color)';
+      });
+    });
+  });
+
   document.getElementById('create-channel-submit').addEventListener('click', async () => {
     const name  = document.getElementById('new-channel-name').value.trim();
     const topic = document.getElementById('new-channel-topic').value.trim();
+    const type  = modal.querySelector('input[name="ch-type"]:checked')?.value || 'text';
     if (!name) return;
     try {
-      const data = await Api.createChannel(serverId, name, topic);
+      const data = await Api.createChannel(serverId, name, topic, type);
       const channel = data?.channel;
       if (channel) {
         Store.addChannel(serverId, channel);
         modal.remove();
         renderChannelList(Store.getChannels(serverId), serverId);
-        openChannel(channel.id, serverId);
+        if (channel.type !== 'voice') openChannel(channel.id, serverId);
       }
     } catch (e) {
       const errEl = document.getElementById('create-channel-err');
@@ -2210,121 +2283,127 @@ async function sendVoiceOffer(channelId, targetUserId) {
 
 // ── Sesli kanal UI güncellemeleri ────────────────────────
 
-function updateVoiceUI(channelId) {
-  // Kanal header'daki bağlan/ayrıl butonu
-  const btn = document.getElementById('channel-voice-btn');
-  if (btn) {
-    if (channelId && Store.myVoiceChannelId === channelId) {
-      btn.textContent = '📵';
-      btn.title = 'Sesli kanaldan ayrıl';
-      btn.style.color = 'var(--color-error)';
-    } else {
-      btn.textContent = '🎙️';
-      btn.title = 'Sesli bağlan';
-      btn.style.color = '';
-    }
-  }
+// ── Sesli kanal UI ──────────────────────────────────────
 
-  // Sidebar alt barı
+function updateVoiceUI(channelId) {
+  // Sidebar alt status bar
   updateVoiceStatusBar(channelId);
-  if (channelId) updateVoiceHeader(channelId);
+  // Sidebar kanal listesinde katılımcılar
+  if (channelId) {
+    renderVoiceSidebarParticipants(channelId, Store.getVoiceParticipants(channelId));
+  }
+  // Kanal listesinde "BAĞLI" badge'ini yenile
+  const serverId = Store.activeServerId;
+  if (serverId) renderChannelList(Store.getChannels(serverId), serverId);
 }
 
-function updateVoiceHeader(channelId) {
-  const container = document.getElementById('voice-participants-header');
+// Sidebar'daki sesli kanal öğesinin altında katılımcıları göster (Discord stili)
+function renderVoiceSidebarParticipants(channelId, participants) {
+  const container = document.getElementById(`voice-participants-${channelId}`);
   if (!container) return;
 
-  const participants = Store.getVoiceParticipants(channelId);
   if (!participants.length) { container.innerHTML = ''; return; }
 
   container.innerHTML = participants.map(uid => {
-    const name = uid === Store.user.id ? (Store.user.username || 'Ben') : (Store.getUsername(uid) || '?');
+    const name    = uid === Store.user.id ? (Store.user.username || 'Ben') : (Store.getUsername(uid) || uid.slice(0, 6));
+    const isMuted = uid === Store.user.id && voiceMicStream && !voiceMicStream.getAudioTracks()[0]?.enabled;
     return `
-      <div class="voice-avatar" data-uid="${uid}"
+      <div class="voice-avatar" data-uid="${uid === Store.user.id ? '__me__' : uid}"
            title="${name}"
-           style="width:28px;height:28px;border-radius:50%;background:var(--bg-elevated);border:2px solid var(--border-color);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--color-primary-light);transition:border-color 0.15s">
-        ${name[0].toUpperCase()}
+           style="display:flex;align-items:center;gap:4px;padding:2px 6px 2px 2px;border-radius:12px;
+                  background:var(--bg-elevated);border:1px solid var(--border-color);
+                  font-size:11px;color:var(--text-normal);transition:border-color .15s;cursor:default;width:fit-content">
+        <div style="width:20px;height:20px;border-radius:50%;background:var(--bg-overlay);
+                    display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;
+                    color:var(--color-primary-light);flex-shrink:0">
+          ${(name[0] || '?').toUpperCase()}
+        </div>
+        <span style="max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
+        ${isMuted ? '<span title="Sessiz">🔇</span>' : ''}
       </div>
     `;
   }).join('');
 
-  // Kendi konuşma algılaması
+  // Kendi konuşma algılaması (speaking border)
   if (voiceMicStream) {
     setupSpeakingDetection('__me__', voiceMicStream);
-    // Kendi avatar'ını "__me__" data-uid ile güncelle
-    const myEl = container.querySelector(`.voice-avatar[data-uid="${Store.user.id}"]`);
-    if (myEl) myEl.dataset.uid = '__me__';
   }
 }
 
 function updateVoiceStatusBar(channelId) {
-  // Eski bar varsa kaldır
   document.getElementById('voice-status-bar')?.remove();
   if (!channelId) return;
 
-  // Sidebar'ın altına ekle
   const sidebar = document.querySelector('.sidebar');
   if (!sidebar) return;
 
-  const servers   = Store.servers;
-  const serverId  = Store.activeServerId;
-  const channels  = serverId ? Store.getChannels(serverId) : [];
-  const channel   = channels.find(c => c.id === channelId);
-  const chName    = channel?.name || 'sesli kanal';
+  const channels = Store.activeServerId ? Store.getChannels(Store.activeServerId) : [];
+  const chName   = channels.find(c => c.id === channelId)?.name || 'sesli kanal';
+  const isMuted  = voiceMicStream && !voiceMicStream.getAudioTracks()[0]?.enabled;
 
   const bar = document.createElement('div');
   bar.id = 'voice-status-bar';
   bar.style.cssText = `
     padding:10px 14px;background:var(--bg-overlay);border-top:1px solid var(--border-color);
-    display:flex;align-items:center;gap:8px;flex-shrink:0;
+    display:flex;flex-direction:column;gap:6px;flex-shrink:0;
   `;
   bar.innerHTML = `
-    <div style="flex:1;overflow:hidden">
-      <div style="font-size:12px;font-weight:600;color:var(--color-success)">🎙️ Sesli bağlantı aktif</div>
-      <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">#${chName}</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="flex:1;overflow:hidden">
+        <div style="font-size:12px;font-weight:600;color:var(--color-success)">● Sesli bağlantı aktif</div>
+        <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🔊 ${chName}</div>
+      </div>
+      <button onclick="toggleVoiceMute()" id="voice-mute-btn" class="btn-icon"
+              title="${isMuted ? 'Mikrofonu aç' : 'Mikrofonu kapat'}"
+              style="font-size:18px;${isMuted ? 'color:var(--color-error)' : ''}">
+        ${isMuted ? '🔇' : '🎤'}
+      </button>
+      <button onclick="leaveVoice()" class="btn-icon"
+              title="Kanaldan ayrıl" style="font-size:18px;color:var(--color-error)">
+        📵
+      </button>
     </div>
-    <button onclick="toggleVoiceMute()" id="voice-mute-btn" class="btn-icon" title="Mikrofon" style="font-size:16px">🎤</button>
-    <button onclick="leaveVoice()" class="btn-icon" title="Ayrıl" style="font-size:16px;color:var(--color-error)">📵</button>
   `;
   sidebar.appendChild(bar);
 }
 
 function toggleVoiceMute() {
   if (!voiceMicStream) return;
-  const track   = voiceMicStream.getAudioTracks()[0];
+  const track = voiceMicStream.getAudioTracks()[0];
   if (!track) return;
-  track.enabled  = !track.enabled;
-  const btn = document.getElementById('voice-mute-btn');
-  if (btn) btn.textContent = track.enabled ? '🎤' : '🔇';
-
-  // Diğer peer'lara da mute durumu gönder (opsiyonel bilgi)
+  track.enabled = !track.enabled;
+  // Status bar'ı yenile (mute durumu değişti)
+  updateVoiceStatusBar(Store.myVoiceChannelId);
+  // Sidebar'daki katılımcı listesini güncelle (kendi ikonum değişir)
+  if (Store.myVoiceChannelId) {
+    renderVoiceSidebarParticipants(Store.myVoiceChannelId, Store.getVoiceParticipants(Store.myVoiceChannelId));
+  }
   showToast(track.enabled ? 'Mikrofon açık' : 'Mikrofon kapalı', 'info');
 }
 
 // ── Sesli kanal WS olayları ──────────────────────────────
 Socket.on('voice_participants', async ({ channel_id, user_ids }) => {
   if (channel_id !== Store.myVoiceChannelId) return;
-  // Mevcut katılımcılara offer gönder
   for (const uid of user_ids) {
     if (uid !== Store.user.id) {
       Store.addVoiceParticipant(channel_id, uid);
       await sendVoiceOffer(channel_id, uid);
     }
   }
-  updateVoiceHeader(channel_id);
+  renderVoiceSidebarParticipants(channel_id, Store.getVoiceParticipants(channel_id));
 });
 
 Socket.on('voice_user_joined', ({ channel_id, user_id }) => {
   if (channel_id !== Store.myVoiceChannelId) return;
   if (user_id === Store.user.id) return;
-  // Karşı taraf bize offer gönderecek, biz hazırlanıyoruz
   Store.addVoiceParticipant(channel_id, user_id);
-  updateVoiceHeader(channel_id);
+  renderVoiceSidebarParticipants(channel_id, Store.getVoiceParticipants(channel_id));
   showToast(`${Store.getUsername(user_id) || 'Biri'} sesli kanala katıldı 🎙️`, 'info');
 });
 
 Socket.on('voice_user_left', ({ channel_id, user_id }) => {
   cleanupVoicePeer(user_id, channel_id);
+  renderVoiceSidebarParticipants(channel_id, Store.getVoiceParticipants(channel_id));
   showToast(`${Store.getUsername(user_id) || 'Biri'} sesli kanaldan ayrıldı`, 'info');
 });
 

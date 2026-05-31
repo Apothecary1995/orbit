@@ -384,6 +384,28 @@
   box-shadow: 0 0 0 2px rgba(87, 242, 135, 0.35);
 }
 
+/* ── Sesli kanal sidebar satırı ── */
+.channel-voice-item {
+  user-select: none;
+}
+.channel-voice-item:hover {
+  background: var(--bg-elevated);
+}
+
+/* ── Status bar "bağlı" pulse ── */
+#voice-status-bar .voice-active-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  margin-right: 4px;
+  animation: voice-pulse 1.8s ease-in-out infinite;
+}
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: .6; transform: scale(.8); }
+}
+
 /* ── Ekran paylaşımı badge ── */
 #screen-share-badge {
   animation: pulse 2s ease-in-out infinite;

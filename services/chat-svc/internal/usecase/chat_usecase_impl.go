@@ -305,13 +305,17 @@ func (c *chatUsecase) DeleteServer(ctx context.Context, serverID, userID string)
 
 // ── Kanal işlemleri ──────────────────────────────────────
 
-func (c *chatUsecase) CreateChannel(ctx context.Context, serverID, name, topic, ownerID string) (*entity.Channel, error) {
+func (c *chatUsecase) CreateChannel(ctx context.Context, serverID, name, topic, ownerID, channelType string) (*entity.Channel, error) {
 	role := c.getMemberRole(ctx, serverID, ownerID)
 	if !role.CanManageChannels() {
 		return nil, errors.New("kanal oluşturmak için admin veya owner yetkisi gerekiyor")
 	}
 
-	// Kanala ait backing conversation oluştur
+	if channelType != "voice" {
+		channelType = "text"
+	}
+
+	// Kanala ait backing conversation oluştur (sesli kanallar da mesaj için conversation'a sahip)
 	conv := &entity.Conversation{
 		ID:        generateID(),
 		Type:      "channel",
@@ -323,7 +327,6 @@ func (c *chatUsecase) CreateChannel(ctx context.Context, serverID, name, topic, 
 		return nil, fmt.Errorf("kanal conversation'ı oluşturulamadı: %w", err)
 	}
 
-	// Tüm server üyelerini conversation'a ekle
 	channels, _ := c.channelRepo.ListByServerID(ctx, serverID)
 	pos := len(channels)
 
@@ -332,7 +335,7 @@ func (c *chatUsecase) CreateChannel(ctx context.Context, serverID, name, topic, 
 		ServerID:       serverID,
 		Name:           name,
 		Topic:          topic,
-		Type:           "text",
+		Type:           channelType,
 		Position:       pos,
 		ConversationID: conv.ID,
 		CreatedAt:      time.Now(),

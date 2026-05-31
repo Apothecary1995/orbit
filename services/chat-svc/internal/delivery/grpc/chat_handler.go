@@ -242,7 +242,11 @@ func (h *ChatHandler) CreateChannel(ctx context.Context, req *pb.CreateChannelRe
 	if req.Name == "" || req.ServerId == "" || req.OwnerId == "" {
 		return nil, status.Error(codes.InvalidArgument, "server_id, name ve owner_id zorunlu")
 	}
-	ch, err := h.chatUC.CreateChannel(ctx, req.ServerId, req.Name, req.Topic, req.OwnerId)
+	chType := req.Type
+	if chType != "voice" {
+		chType = "text"
+	}
+	ch, err := h.chatUC.CreateChannel(ctx, req.ServerId, req.Name, req.Topic, req.OwnerId, chType)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}

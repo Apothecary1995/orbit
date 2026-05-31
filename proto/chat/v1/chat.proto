@@ -112,7 +112,7 @@ message JoinServerResponse   { Server server = 1; }
 message DeleteServerRequest  { string server_id = 1; string user_id = 2; }
 message DeleteServerResponse { bool success = 1; }
 
-message CreateChannelRequest  { string server_id = 1; string name = 2; string topic = 3; string owner_id = 4; }
+message CreateChannelRequest  { string server_id = 1; string name = 2; string topic = 3; string owner_id = 4; string type = 5; }
 message CreateChannelResponse { Channel channel = 1; }
 message ListChannelsRequest   { string server_id = 1; string user_id = 2; }
 message ListChannelsResponse  { repeated Channel channels = 1; }

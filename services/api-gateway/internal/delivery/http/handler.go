@@ -382,6 +382,30 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
+
+func serverToMap(s interface{ GetId() string; GetName() string; GetIconUrl() string; GetOwnerId() string; GetInviteCode() string; GetCreatedAt() string }) map[string]interface{} {
+	return map[string]interface{}{
+		"id":          s.GetId(),
+		"name":        s.GetName(),
+		"icon_url":    s.GetIconUrl(),
+		"owner_id":    s.GetOwnerId(),
+		"invite_code": s.GetInviteCode(),
+		"created_at":  s.GetCreatedAt(),
+	}
+}
+
+func channelToMap(ch interface{ GetId() string; GetServerId() string; GetName() string; GetTopic() string; GetType() string; GetPosition() int32; GetConversationId() string; GetCreatedAt() string }) map[string]interface{} {
+	return map[string]interface{}{
+		"id":              ch.GetId(),
+		"server_id":       ch.GetServerId(),
+		"name":            ch.GetName(),
+		"topic":           ch.GetTopic(),
+		"type":            ch.GetType(),
+		"position":        ch.GetPosition(),
+		"conversation_id": ch.GetConversationId(),
+		"created_at":      ch.GetCreatedAt(),
+	}
+}
 func (h *Handler) searchUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "sadece GET")
@@ -515,7 +539,11 @@ func (h *Handler) servers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"servers": resp.Servers})
+		servers := make([]map[string]interface{}, len(resp.Servers))
+		for i, s := range resp.Servers {
+			servers[i] = serverToMap(s)
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"servers": servers})
 
 	case http.MethodPost:
 		var req struct {
@@ -534,7 +562,7 @@ func (h *Handler) servers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]interface{}{"server": resp.Server})
+		writeJSON(w, http.StatusCreated, map[string]interface{}{"server": serverToMap(resp.Server)})
 
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
@@ -570,7 +598,7 @@ func (h *Handler) serverDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"server": resp.Server})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"server": serverToMap(resp.Server)})
 		return
 	}
 
@@ -586,7 +614,7 @@ func (h *Handler) serverDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"server": resp.Server})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"server": serverToMap(resp.Server)})
 		case http.MethodDelete:
 			var req struct {
 				UserID string `json:"user_id"`
@@ -682,25 +710,33 @@ func (h *Handler) serverDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusForbidden, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"channels": resp.Channels})
+			channels := make([]map[string]interface{}, len(resp.Channels))
+			for i, ch := range resp.Channels {
+				channels[i] = channelToMap(ch)
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{"channels": channels})
 		case http.MethodPost:
 			var req struct {
 				Name    string `json:"name"`
 				Topic   string `json:"topic"`
 				OwnerID string `json:"owner_id"`
+				Type    string `json:"type"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.OwnerID == "" {
 				writeError(w, http.StatusBadRequest, "name ve owner_id zorunlu")
 				return
 			}
+			if req.Type != "voice" {
+				req.Type = "text"
+			}
 			resp, err := h.clients.ChatService.CreateChannel(r.Context(), &chatpb.CreateChannelRequest{
-				ServerId: serverID, Name: req.Name, Topic: req.Topic, OwnerId: req.OwnerID,
+				ServerId: serverID, Name: req.Name, Topic: req.Topic, OwnerId: req.OwnerID, Type: req.Type,
 			})
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusCreated, map[string]interface{}{"channel": resp.Channel})
+			writeJSON(w, http.StatusCreated, map[string]interface{}{"channel": channelToMap(resp.Channel)})
 		default:
 			writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
 		}

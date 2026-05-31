@@ -16,7 +16,6 @@ const Api = {
 
     try {
       const res = await fetch(`${API_BASE}${path}`, opts);
-      const data = await res.json();
 
       // Token süresi dolmuşsa refresh dene
       if (res.status === 401 && Store.refreshToken) {
@@ -30,8 +29,16 @@ const Api = {
         }
       }
 
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        if (!res.ok) throw new Error(`Sunucu hatası: ${res.status}`);
+        throw new Error('Sunucu yanıtı okunamadı');
+      }
+
       if (!res.ok) {
-        throw new Error(data.error || 'Bir hata oluştu');
+        throw new Error(data?.error || 'Bir hata oluştu');
       }
 
       return data;
@@ -144,8 +151,8 @@ const Api = {
     return this.get(`/servers/${serverId}/channels?user_id=${Store.user.id}`);
   },
 
-  async createChannel(serverId, name, topic = '') {
-    return this.post(`/servers/${serverId}/channels`, { name, topic, owner_id: Store.user.id });
+  async createChannel(serverId, name, topic = '', type = 'text') {
+    return this.post(`/servers/${serverId}/channels`, { name, topic, type, owner_id: Store.user.id });
   },
 
   async deleteChannel(channelId) {
