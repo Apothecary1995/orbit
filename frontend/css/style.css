@@ -583,3 +583,13 @@ a:hover { color: var(--color-primary-light); }
   from { transform: translateY(-100%); }
   to   { transform: translateY(0); }
 }
+
+/* Görüldü etiketi */
+.msg-seen {
+  display: none;
+  font-size: 10px;
+  color: var(--color-primary);
+  text-align: right;
+  padding: 0 4px 2px;
+  margin-top: -2px;
+}

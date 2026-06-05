@@ -100,18 +100,23 @@ const Socket = {
         if (p.conversation_id === Store.activeConvId) {
           const isSelf = p.sender_id === Store.user?.id;
           if (isSelf) {
-            const tempEl = document.querySelector('[data-id^="temp-"]');
-            if (tempEl) {
+            // Kendi mesajımız: temp bubble'ı bul, ID'leri güncelle — ASLA appendMessage çağırma
+            const tempBubble = document.querySelector('[data-msg-id^="temp-"]');
+            if (tempBubble) {
               // WS önce geldi: temp → gerçek ID
-              tempEl.dataset.id = p.id;
+              tempBubble.dataset.msgId = p.id;
+              const wrapper = tempBubble.closest('[data-id]');
+              if (wrapper) {
+                wrapper.dataset.id = p.id;
+                // "Görüldü" elementinin id'sini de güncelle
+                const seenEl = wrapper.querySelector('.msg-seen');
+                if (seenEl) seenEl.id = 'seen-' + p.id;
+              }
               if (typeof updateMessageStatusIcon === 'function') {
                 updateMessageStatusIcon(p.id, 'sent');
               }
-            } else if (!document.querySelector(`[data-id="${p.id}"]`)) {
-              // HTTP önce geldi VE element mevcut değil → başka cihaz/sekme
-              if (typeof appendMessage === 'function') appendMessage(p);
             }
-            // else: HTTP zaten temp'i gerçek ID'ye çevirdi → element DOM'da, atla
+            // temp yoksa: HTTP zaten güncelledi → atla; hiçbir durumda appendMessage çağırma
           } else if (typeof appendMessage === 'function') {
             appendMessage(p);
           }

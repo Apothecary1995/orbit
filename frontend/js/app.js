@@ -366,6 +366,8 @@ function renderChat() {
   window._readReceiptHandler = ({ message_id, reader_id }) => {
     if (reader_id === Store.user?.id) return;
     updateMessageStatusIcon(message_id, 'read');
+    const seenEl = document.getElementById('seen-' + message_id);
+    if (seenEl) seenEl.style.display = 'block';
   };
   Socket.on('read_receipt', window._readReceiptHandler);
 
@@ -1362,11 +1364,16 @@ async function sendMessage(convId, input) {
   try {
     const result  = await Api.sendMessage(convId, content, 'text', replyToId);
     const realId = result?.message_id;
-    // Temp element'i gerçek id ile güncelle ve "gönderildi" tikini göster
+    // HTTP önce geldi: temp wrapper'ı bul ve gerçek ID'ye güncelle
     const tempEl = document.querySelector(`[data-id="${tempId}"]`);
     if (tempEl) {
-      if (realId) tempEl.dataset.id = realId;
-      tempEl.querySelector('.message-bubble')?.setAttribute('data-msg-id', realId || tempId);
+      if (realId) {
+        tempEl.dataset.id = realId;
+        tempEl.querySelector('.message-bubble')?.setAttribute('data-msg-id', realId);
+        // "Görüldü" elementinin id'sini de güncelle
+        const seenEl = tempEl.querySelector('.msg-seen');
+        if (seenEl) seenEl.id = 'seen-' + realId;
+      }
       updateMessageStatusIcon(realId || tempId, 'sent');
     }
   } catch (err) {
@@ -1504,6 +1511,15 @@ function appendMessage(msg, isGrouped = false) {
   reactionsEl.id = 'reactions-' + msg.id;
   reactionsEl.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;' + (isSent ? 'justify-content:flex-end' : '');
   wrapper.appendChild(reactionsEl);
+
+  // "Görüldü" etiketi — sadece gönderilmiş mesajlarda, read_receipt gelince gösterilir
+  if (isSent) {
+    const seenEl = document.createElement('div');
+    seenEl.id = 'seen-' + msg.id;
+    seenEl.className = 'msg-seen';
+    seenEl.textContent = 'Görüldü';
+    wrapper.appendChild(seenEl);
+  }
 
   list.appendChild(wrapper);
 
