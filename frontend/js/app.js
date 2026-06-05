@@ -377,7 +377,10 @@ function renderChat() {
   Socket.off('presence', window._presenceHandler);
   window._presenceHandler = ({ user_id, online }) => {
     updatePresenceIndicator(user_id, online);
-    if (document.getElementById('friends-panel')) renderFriendsPanel();
+    if (document.getElementById('friends-panel')) {
+      clearTimeout(window._friendsPanelTimer);
+      window._friendsPanelTimer = setTimeout(renderFriendsPanel, 150);
+    }
   };
   Socket.on('presence', window._presenceHandler);
 
@@ -523,39 +526,29 @@ function renderFriendsPanel() {
       name:   c.name || Store.getUsername(c.other_user_id) || 'Bilinmiyor',
       convId: c.id,
       online: Store.isOnline(c.other_user_id),
-    }));
+    }))
+    .sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
 
-  const onlineFriends  = friends.filter(f => f.online);
-  const offlineFriends = friends.filter(f => !f.online);
+  const onlineCount = friends.filter(f => f.online).length;
+  const hasServers  = Store.servers && Store.servers.length > 0;
 
   sidebar.innerHTML = `
     <div class="sidebar-header">
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:15px;color:var(--text-primary)">Arkadaşlar</div>
+        <div style="font-size:11px;color:var(--text-muted)">${onlineCount} çevrimiçi · ${friends.length} toplam</div>
       </div>
       <button class="btn-icon" id="add-friend-btn" title="Arkadaş ekle">${Icons.userPlus}</button>
       <button class="btn-icon" id="logout-btn" title="Çıkış yap">${Icons.logOut}</button>
     </div>
     <div id="friends-panel" style="flex:1;overflow-y:auto;padding:8px 0">
-      ${onlineFriends.length > 0 ? `
-        <div style="padding:12px 16px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px">
-          Çevrimiçi — ${onlineFriends.length}
-        </div>
-        ${onlineFriends.map(f => friendItem(f)).join('')}
-      ` : ''}
-      ${offlineFriends.length > 0 ? `
-        <div style="padding:12px 16px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px">
-          Çevrimdışı — ${offlineFriends.length}
-        </div>
-        ${offlineFriends.map(f => friendItem(f)).join('')}
-      ` : ''}
       ${friends.length === 0 ? `
         <div style="padding:40px 16px;text-align:center;color:var(--text-muted)">
           <div style="font-size:40px;margin-bottom:12px">👥</div>
           <div style="font-size:14px;font-weight:600;margin-bottom:6px">Henüz arkadaşın yok</div>
           <div style="font-size:12px">Mesajlaştığın kişiler burada görünür</div>
         </div>
-      ` : ''}
+      ` : friends.map(f => friendItem(f, hasServers)).join('')}
     </div>
   `;
 
@@ -567,18 +560,34 @@ function renderFriendsPanel() {
   });
 
   document.querySelectorAll('[data-friend-conv]').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-invite-btn]')) return;
       document.querySelectorAll('.server-icon').forEach(s => s.classList.remove('active'));
       document.getElementById('server-dm-btn').classList.add('active');
       restoreDmSidebar();
       openConversation(el.dataset.friendConv);
     });
   });
+
+  document.querySelectorAll('[data-invite-btn]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showInviteServerPicker(btn.dataset.friendConvId, btn);
+    });
+  });
 }
 
-function friendItem(f) {
+function friendItem(f, hasServers) {
+  const inviteBtn = hasServers ? `
+    <button class="btn-icon" title="Sunucuya davet et" data-invite-btn
+            data-friend-conv-id="${escHtml(f.convId)}"
+            style="flex-shrink:0">
+      ${Icons.userPlus}
+    </button>` : '';
+
   return `
-    <div class="conv-item" data-friend-conv="${escHtml(f.convId)}" style="cursor:pointer">
+    <div class="conv-item" data-friend-conv="${escHtml(f.convId)}"
+         data-other-user-id="${escHtml(f.userId)}" style="cursor:pointer">
       <div class="avatar-wrap">
         <div class="avatar">${escHtml(f.name[0].toUpperCase())}</div>
         <div class="presence-dot${f.online ? ' online' : ''}"></div>
@@ -586,12 +595,85 @@ function friendItem(f) {
       <div class="conv-info">
         <div class="conv-name">${escHtml(f.name)}</div>
         <div class="conv-preview" style="color:${f.online ? 'var(--color-success)' : 'var(--text-muted)'}">
-          ${f.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+          ${f.online ? '● Çevrimiçi' : '○ Çevrimdışı'}
         </div>
       </div>
-      <div style="flex-shrink:0;color:var(--text-muted)">${Icons.messageSquare}</div>
+      <div style="display:flex;align-items:center;gap:2px;flex-shrink:0">
+        <div style="color:var(--text-muted);display:flex;align-items:center;padding:4px">${Icons.messageSquare}</div>
+        ${inviteBtn}
+      </div>
     </div>
   `;
+}
+
+function showInviteServerPicker(convId, anchorEl) {
+  const existing = document.getElementById('invite-picker');
+  if (existing) { existing.remove(); return; }
+
+  const servers = Store.servers || [];
+  if (servers.length === 0) return;
+
+  if (servers.length === 1) {
+    sendServerInviteToDm(convId, servers[0]);
+    return;
+  }
+
+  const picker = document.createElement('div');
+  picker.id = 'invite-picker';
+  picker.style.cssText = 'position:fixed;z-index:300;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:6px;min-width:200px;box-shadow:var(--shadow-lg)';
+
+  const rect = anchorEl.getBoundingClientRect();
+  picker.style.top  = `${rect.bottom + 4}px`;
+  picker.style.left = `${Math.max(4, rect.left - 160)}px`;
+
+  picker.innerHTML = `
+    <div style="padding:4px 10px 6px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px">
+      Hangi sunucuya?
+    </div>
+    ${servers.map(s => `
+      <div class="conv-item" data-srv="${escHtml(s.id)}"
+           style="cursor:pointer;padding:8px 10px;gap:10px;border-radius:var(--radius-sm)"
+           onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background=''">
+        <div class="avatar avatar-sm">${escHtml((s.name || '?')[0].toUpperCase())}</div>
+        <div style="font-size:13px;font-weight:500;color:var(--text-primary)">${escHtml(s.name)}</div>
+      </div>
+    `).join('')}
+  `;
+
+  document.body.appendChild(picker);
+
+  picker.querySelectorAll('[data-srv]').forEach(el => {
+    el.addEventListener('click', () => {
+      const server = servers.find(s => s.id === el.dataset.srv);
+      picker.remove();
+      if (server) sendServerInviteToDm(convId, server);
+    });
+  });
+
+  setTimeout(() => {
+    document.addEventListener('click', function closePicker(e) {
+      if (!picker.contains(e.target)) {
+        picker.remove();
+        document.removeEventListener('click', closePicker);
+      }
+    });
+  }, 50);
+}
+
+async function sendServerInviteToDm(convId, server) {
+  if (!convId || !server?.invite_code) return;
+  // `:` karakterini server adından çıkar ki parse güvenli olsun
+  const safeName = (server.name || 'Sunucu').replace(/:/g, '');
+  const content = `orbit-invite:${safeName}:${server.invite_code}`;
+  try {
+    const data = await Api.sendMessage(convId, content, 'text');
+    document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
+    document.getElementById('server-dm-btn').classList.add('active');
+    restoreDmSidebar();
+    openConversation(convId);
+  } catch (e) {
+    console.error('Davet gönderilemedi:', e);
+  }
 }
 
 function showAddFriendModal() {
@@ -1151,13 +1233,34 @@ function appendMessage(msg, isGrouped = false) {
   // Tüm kullanıcı içeriği escape edilmeli — XSS önlemi
   const safeContent = escHtml(msg.content || '');
   let content;
+  let isInviteCard = false;
   if (msgType === 'image') {
-    // URL'yi escape et ama img olarak render et
     content = `<img src="${safeContent}" style="max-width:100%;border-radius:8px;display:block;margin-bottom:4px" loading="lazy" onerror="this.style.display='none'" />`;
   } else if (msgType === 'file') {
     content = `<a href="${safeContent}" target="_blank" rel="noopener noreferrer" style="color:var(--color-primary-light)">📎 Dosya</a>`;
+  } else if ((msg.content || '').startsWith('orbit-invite:')) {
+    const parts = msg.content.split(':');
+    const srvName   = parts[1] || 'Sunucu';
+    const srvCode   = (parts[2] || '').replace(/[^a-zA-Z0-9\-_]/g, '');
+    const alreadyIn = Store.servers.some(s => s.invite_code === srvCode);
+    content = `
+      <div class="orbit-invite-card" data-code="${escHtml(srvCode)}"
+           style="background:var(--bg-overlay);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:14px;min-width:220px;max-width:260px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div class="avatar avatar-sm">${escHtml(srvName[0].toUpperCase())}</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text-primary)">${escHtml(srvName)}</div>
+            <div style="font-size:11px;color:var(--text-muted)">Sunucu daveti</div>
+          </div>
+        </div>
+        <button class="btn btn-primary invite-join-btn" style="width:100%;padding:8px;font-size:13px"
+                ${alreadyIn ? 'disabled' : ''}>
+          ${alreadyIn ? '✓ Zaten üyesin' : 'Sunucuya Katıl'}
+        </button>
+      </div>`;
+    isInviteCard = true;
   } else {
-    content = safeContent; // plain text — escape edildi
+    content = safeContent;
   }
 
   // Reply preview — escape edildi
@@ -1197,6 +1300,28 @@ function appendMessage(msg, isGrouped = false) {
   wrapper.appendChild(reactionsEl);
 
   list.appendChild(wrapper);
+
+  // Davet kartı "Sunucuya Katıl" butonu
+  if (isInviteCard) {
+    const card = wrapper.querySelector('.orbit-invite-card');
+    const joinBtn = card?.querySelector('.invite-join-btn');
+    if (joinBtn && !joinBtn.disabled) {
+      joinBtn.addEventListener('click', async () => {
+        const code = card.dataset.code;
+        joinBtn.disabled = true;
+        joinBtn.textContent = 'Katılınıyor...';
+        try {
+          await Api.joinServer(code);
+          joinBtn.textContent = '✓ Katıldın!';
+          joinBtn.style.background = 'var(--color-success)';
+          await loadServers();
+        } catch {
+          joinBtn.disabled = false;
+          joinBtn.textContent = 'Sunucuya Katıl';
+        }
+      });
+    }
+  }
 
   // Scroll-to-bottom: kullanıcı yukarı kaydırmadıysa otomatik aşağı git
   const distFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
