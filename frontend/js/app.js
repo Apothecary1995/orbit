@@ -494,11 +494,11 @@ async function searchUsers(q) {
     }
 
     results.innerHTML = users.map(u => `
-      <div class="conv-item" data-uid="${u.id}" data-uname="${u.username}" style="cursor:pointer;border-radius:8px">
-        <div class="avatar avatar-sm">${u.username[0].toUpperCase()}</div>
+      <div class="conv-item" data-uid="${escHtml(u.id)}" data-uname="${escHtml(u.username)}" style="cursor:pointer;border-radius:8px">
+        <div class="avatar avatar-sm">${escHtml((u.username || '?')[0].toUpperCase())}</div>
         <div class="conv-info">
-          <div class="conv-name">${u.username}</div>
-          <div class="conv-preview">${u.phone}</div>
+          <div class="conv-name">${escHtml(u.username)}</div>
+          <div class="conv-preview">${escHtml(u.phone)}</div>
         </div>
       </div>
     `).join('');
@@ -945,14 +945,22 @@ function appendMessage(msg, isGrouped = false) {
   }
 
   const msgType = msg.type || 'text';
-  let content = msgType === 'image' ? '<img src="' + msg.content + '" style="max-width:100%;border-radius:8px;display:block;margin-bottom:4px" />' :
-                msgType === 'file'  ? '<a href="' + msg.content + '" target="_blank" style="color:var(--color-primary-light)">📎 Dosya</a>' :
-                msg.content;
+  // Tüm kullanıcı içeriği escape edilmeli — XSS önlemi
+  const safeContent = escHtml(msg.content || '');
+  let content;
+  if (msgType === 'image') {
+    // URL'yi escape et ama img olarak render et
+    content = `<img src="${safeContent}" style="max-width:100%;border-radius:8px;display:block;margin-bottom:4px" loading="lazy" onerror="this.style.display='none'" />`;
+  } else if (msgType === 'file') {
+    content = `<a href="${safeContent}" target="_blank" rel="noopener noreferrer" style="color:var(--color-primary-light)">📎 Dosya</a>`;
+  } else {
+    content = safeContent; // plain text — escape edildi
+  }
 
-  // Reply preview
+  // Reply preview — escape edildi
   let replyHTML = '';
   if (msg.reply_to_id && msg.reply_to_content) {
-    replyHTML = `<div style="border-left:3px solid var(--color-primary);padding:4px 8px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);border-radius:0 4px 4px 0;background:rgba(127,119,221,0.1)">${msg.reply_to_content}</div>`;
+    replyHTML = `<div style="border-left:3px solid var(--color-primary);padding:4px 8px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);border-radius:0 4px 4px 0;background:rgba(127,119,221,0.1)">${escHtml(msg.reply_to_content)}</div>`;
   }
 
   const el = document.createElement('div');
@@ -1183,7 +1191,8 @@ function setReplyTo(msg) {
   const preview = document.createElement('div');
   preview.id = 'reply-preview';
   preview.style.cssText = 'padding:8px 12px;background:var(--bg-elevated);border-left:3px solid var(--color-primary);margin:0 0 4px;border-radius:0 8px 8px 0;font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;align-items:center';
-  preview.innerHTML = '<span>↩️ ' + msg.content.substring(0, 50) + (msg.content.length > 50 ? '...' : '') + '</span><button onclick="clearReply()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>';
+  const replySnippet = escHtml((msg.content || '').substring(0, 50)) + (msg.content?.length > 50 ? '…' : '');
+  preview.innerHTML = `<span>↩️ ${replySnippet}</span><button onclick="clearReply()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px">×</button>`;
   bar.parentNode.insertBefore(preview, bar);
 }
 

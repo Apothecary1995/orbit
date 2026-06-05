@@ -59,7 +59,7 @@ func Load() Config {
 			PrivateKey: getEnv("VAPID_PRIVATE_KEY", ""),
 			Subject:    getEnv("VAPID_SUBJECT", "mailto:admin@cengsta.local"),
 		},
-		MinioPublicURL: getEnv("MINIO_PUBLIC_URL", "http://localhost:9000/cengsta-files"),
+		MinioPublicURL: getEnv("MINIO_PUBLIC_URL", "http://localhost:9000/orbit-files"),
 		AllowedOrigin:  getEnv("ALLOWED_ORIGIN", "http://localhost:5173"),
 	}
 }

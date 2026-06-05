@@ -24,13 +24,18 @@ const Store = {
   },
 
   // ── Auth ───────────────────────────────────────────────
+  // Güvenlik notu:
+  //   Access token → sadece bellekte (XSS çalsa bile kısa ömürlü: 15dk)
+  //   Refresh token → localStorage (session kalıcılığı için, DB'de doğrulanıyor)
+  //   Kullanıcı bilgisi → localStorage (hassas değil)
   setAuth(user, accessToken, refreshToken) {
     this._state.user         = user;
-    this._state.accessToken  = accessToken;
+    this._state.accessToken  = accessToken;   // bellekte tut, localStorage'a yazma
     this._state.refreshToken = refreshToken;
-    localStorage.setItem('cp_access_token',  accessToken);
     localStorage.setItem('cp_refresh_token', refreshToken);
     localStorage.setItem('cp_user',          JSON.stringify(user));
+    // Eski access token varsa sil
+    localStorage.removeItem('cp_access_token');
   },
 
   clearAuth() {
@@ -43,16 +48,19 @@ const Store = {
   },
 
   loadFromStorage() {
-    this._state.accessToken  = localStorage.getItem('cp_access_token');
+    // Access token localStorage'dan okunmaz — sadece refresh token ile yenilenir
     this._state.refreshToken = localStorage.getItem('cp_refresh_token');
     const userStr = localStorage.getItem('cp_user');
     if (userStr) {
       try { this._state.user = JSON.parse(userStr); } catch {}
     }
+    // Güvenlik: eski access token varsa temizle
+    localStorage.removeItem('cp_access_token');
   },
 
   isLoggedIn() {
-    return !!this._state.accessToken && !!this._state.user;
+    // Refresh token varsa oturum açık sayılır, access token yenilenecek
+    return !!this._state.refreshToken && !!this._state.user;
   },
 
   // ── Getters ────────────────────────────────────────────

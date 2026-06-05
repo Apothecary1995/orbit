@@ -1,0 +1,49 @@
+# Yerel geliştirme override'ı
+# `docker compose up` otomatik okur
+# Prod'da kullanma — docker compose -f docker-compose.yml up
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"   # Management UI
+
+  minio:
+    ports:
+      - "9000:9000"     # S3 API
+      - "9001:9001"     # Console UI
+
+  jaeger:
+    ports:
+      - "16686:16686"   # Tracing UI
+      - "4317:4317"
+      - "4318:4318"
+
+  prometheus:
+    ports:
+      - "9090:9090"
+
+  grafana:
+    ports:
+      - "3000:3000"
+
+  api-gateway:
+    ports:
+      - "8080:8080"
+
+  frontend:
+    ports:
+      - "5173:5173"
+
+  # Local'de Nginx yerine direkt port erişimi — Nginx'i devre dışı bırak
+  nginx:
+    profiles:
+      - prod

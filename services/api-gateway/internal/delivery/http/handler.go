@@ -2,11 +2,15 @@ package http
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +20,11 @@ import (
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
 	pushpkg "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
+)
+
+var (
+	rePhone    = regexp.MustCompile(`^\+[1-9]\d{6,14}$`)
+	reUsername = regexp.MustCompile(`^[a-zA-Z0-9_]{3,32}$`)
 )
 
 var allowedMimeTypes = map[string]bool{
@@ -102,6 +111,18 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Username == "" || req.Phone == "" || req.Password == "" {
 		writeError(w, http.StatusBadRequest, "kullanıcı adı, telefon ve şifre zorunlu")
+		return
+	}
+	if !reUsername.MatchString(req.Username) {
+		writeError(w, http.StatusBadRequest, "kullanıcı adı 3-32 karakter, harf/rakam/alt çizgi olmalı")
+		return
+	}
+	if !rePhone.MatchString(req.Phone) {
+		writeError(w, http.StatusBadRequest, "geçersiz telefon numarası (örnek: +905551234567)")
+		return
+	}
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "şifre en az 8 karakter olmalı")
 		return
 	}
 	resp, err := h.clients.AuthService.Register(r.Context(), &authpb.RegisterRequest{
@@ -244,6 +265,10 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "geçersiz istek")
 			return
 		}
+		if req.Type != "direct" && req.Type != "group" {
+			writeError(w, http.StatusBadRequest, "geçersiz sohbet tipi")
+			return
+		}
 		// member_ids içinde mevcut kullanıcı yoksa ekle
 		hasUser := false
 		for _, id := range req.MemberIDs {
@@ -374,6 +399,10 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Type == "" {
+			req.Type = "text"
+		}
+		validMsgTypes := map[string]bool{"text": true, "image": true, "file": true, "video": true, "audio": true}
+		if !validMsgTypes[req.Type] {
 			req.Type = "text"
 		}
 		resp, err := h.clients.ChatService.SendMessage(r.Context(), &chatpb.SendMessageRequest{
@@ -859,6 +888,10 @@ func (h *Handler) channelDetail(w http.ResponseWriter, r *http.Request) {
 		if req.Type == "" {
 			req.Type = "text"
 		}
+		validMsgTypes := map[string]bool{"text": true, "image": true, "file": true, "video": true, "audio": true}
+		if !validMsgTypes[req.Type] {
+			req.Type = "text"
+		}
 		resp, err := h.clients.ChatService.SendMessage(r.Context(), &chatpb.SendMessageRequest{
 			ConversationId: convID,
 			SenderId:       userID, // JWT'den
@@ -903,18 +936,25 @@ func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Dosya tipi doğrula
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		// İlk 512 byte ile detect et
-		buf := make([]byte, 512)
-		n, _ := file.Read(buf)
-		contentType = http.DetectContentType(buf[:n])
-		file.Seek(0, io.SeekStart)
-	}
-	if !allowedMimeTypes[contentType] {
+	// İlk 512 byte ile gerçek MIME tipini detect et (header'a güvenme)
+	buf512 := make([]byte, 512)
+	n512, _ := file.Read(buf512)
+	detectedType := http.DetectContentType(buf512[:n512])
+	file.Seek(0, io.SeekStart)
+
+	if !allowedMimeTypes[detectedType] {
 		writeError(w, http.StatusBadRequest, "desteklenmeyen dosya türü")
 		return
+	}
+
+	// İzin verilen uzantılar (kullanıcı uzantısını whitelist'e karşı doğrula)
+	allowedExts := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true,
+		".mp4": true, ".webm": true, ".pdf": true, ".mp3": true, ".ogg": true,
+	}
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !allowedExts[ext] {
+		ext = ".bin" // Bilinmeyen uzantıları .bin olarak kaydet
 	}
 
 	data, err := io.ReadAll(file)
@@ -923,15 +963,19 @@ func (h *Handler) uploadMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
+	// Kullanıcı dosya adını hiç kullanma — UUID üret
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	fileName := hex.EncodeToString(randBytes) + ext
 	minioURL := fmt.Sprintf("%s/%s", h.minioURL, fileName)
+
 
 	req, err := http.NewRequest("PUT", minioURL, bytes.NewReader(data))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "yükleme isteği oluşturulamadı")
 		return
 	}
-	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", detectedType)
 	req.ContentLength = int64(len(data))
 
 	client := &http.Client{Timeout: 30 * time.Second}

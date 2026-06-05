@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# Env dosyaları — image'a girmesin
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Go build çıktıları
+**/bin/
+**/*.exe
+
+# Monitoring / k8s — build'e gerek yok
+monitoring/
+k8s/
+
+# Dokümantasyon
+*.md
+docs/
+
+# macOS / Windows
+.DS_Store
+Thumbs.db

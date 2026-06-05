@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/Apothecary1995/cengsta-paradise/services/auth-svc/internal/domain/entity"
@@ -159,10 +160,10 @@ func (a *authUsecase) EnableTOTP(ctx context.Context, userID string) (string, st
 		return "", "", fmt.Errorf("TOTP kaydedilemedi: %w", err)
 	}
 
-	// Google Authenticator'ın okuduğu QR URL formatı
+	// Google Authenticator'ın okuduğu QR URL formatı — kullanıcı adı URL encode edildi
 	qrURL := fmt.Sprintf(
-		"otpauth://totp/CengstaParadise:%s?secret=%s&issuer=CengstaParadise",
-		user.Username, secret,
+		"otpauth://totp/Orbit:%s?secret=%s&issuer=Orbit",
+		url.QueryEscape(user.Username), secret,
 	)
 
 	return secret, qrURL, nil

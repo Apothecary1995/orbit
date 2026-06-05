@@ -22,6 +22,15 @@ import (
 func main() {
 	cfg := config.Load()
 
+	// JWT secret güç kontrolü
+	isProd := os.Getenv("GO_ENV") == "production"
+	if cfg.JWT.Secret == "change-me-in-production" || len(cfg.JWT.Secret) < 32 {
+		if isProd {
+			log.Fatal("HATA: JWT_SECRET zayıf veya varsayılan. Üretimde en az 32 karakterli güçlü bir secret kullan.")
+		}
+		log.Println("UYARI: JWT_SECRET zayıf — üretimde mutlaka değiştir!")
+	}
+
 	ctx := context.Background()
 	pool, err := infraDB.New(ctx, infraDB.Config{
 		Host:     cfg.DB.Host,
