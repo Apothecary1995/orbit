@@ -1,4 +1,4 @@
-// ── Cengsta Paradise — Ana uygulama ──────────────────────
+// ── Orbit — Ana uygulama ──────────────────────
 
 async function setupPushNotifications() {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
@@ -43,17 +43,25 @@ if ('serviceWorker' in navigator) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-
-  // ── Route'ları kaydet ────────────────────────────────
   Router.register('login',    renderLogin);
   Router.register('register', renderRegister);
   Router.register('chat',     renderChat);
   Router.register('calls',    renderCalls);
   Router.register('status',   renderStatus);
   Router.register('404',      render404);
-
-  // Router'ı başlat
   Router.init();
+});
+
+// ── Global event delegation — tüm dinamik butonlar için ──
+document.addEventListener('click', (e) => {
+  // Logout — her yerden çalışır
+  if (e.target.closest('#logout-btn')) {
+    e.preventDefault();
+    Socket.disconnect();
+    Store.clearAuth();
+    Router.navigate('login');
+    return;
+  }
 });
 
 // ── Login sayfası ─────────────────────────────────────
@@ -62,8 +70,9 @@ function renderLogin() {
     <div class="auth-page">
       <div class="auth-card">
         <div class="auth-logo">
-          <h1>Cengsta Paradise</h1>
-          <p>Güvenli mesajlaşma platformu</p>
+          <div class="auth-logo-icon">💬</div>
+          <h1>Orbit</h1>
+          <p>Güvenli · Hızlı · Gerçek zamanlı</p>
         </div>
         <form class="auth-form" id="login-form">
           <div class="input-group">
@@ -77,7 +86,7 @@ function renderLogin() {
           <button class="btn btn-primary btn-full" type="submit" id="login-btn">
             Giriş yap
           </button>
-          <div id="login-error" class="hidden" style="color:var(--color-error);font-size:13px;text-align:center;"></div>
+          <div id="login-error" class="hidden auth-error"></div>
         </form>
         <div class="auth-switch">
           Hesabın yok mu? <a href="#/register">Kayıt ol</a>
@@ -103,7 +112,7 @@ function renderLogin() {
       Socket.connect();
       Router.navigate('chat');
     } catch (err) {
-      errEl.textContent = err.message || 'Giriş başarısız';
+      errEl.textContent = err.message || 'Giriş başarısız. Bilgilerini kontrol et.';
       errEl.classList.remove('hidden');
     } finally {
       btn.disabled = false;
@@ -118,7 +127,8 @@ function renderRegister() {
     <div class="auth-page">
       <div class="auth-card">
         <div class="auth-logo">
-          <h1>Cengsta Paradise</h1>
+          <div class="auth-logo-icon">💬</div>
+          <h1>Orbit</h1>
           <p>Hesap oluştur</p>
         </div>
         <form class="auth-form" id="register-form">
@@ -137,7 +147,7 @@ function renderRegister() {
           <button class="btn btn-primary btn-full" type="submit" id="reg-btn">
             Kayıt ol
           </button>
-          <div id="reg-error" class="hidden" style="color:var(--color-error);font-size:13px;text-align:center;"></div>
+          <div id="reg-error" class="hidden auth-error"></div>
         </form>
         <div class="auth-switch">
           Zaten hesabın var mı? <a href="#/login">Giriş yap</a>
@@ -220,48 +230,45 @@ function renderChat() {
 
   document.getElementById('app').innerHTML = `
     <div class="server-panel" id="server-panel">
-      <div class="server-icon active" id="server-dm-btn" title="Direkt Mesajlar">💬</div>
+      <div class="server-icon active" id="server-dm-btn" title="Direkt Mesajlar">${Icons.messageSquare}</div>
       <div class="server-divider"></div>
       <div id="server-icons"></div>
       <div class="server-divider" id="server-icons-divider" style="display:none"></div>
-      <div class="server-icon" id="server-add-btn" title="Server oluştur">+</div>
-      <div class="server-icon" id="server-join-btn" title="Server'a katıl">#</div>
+      <div class="server-icon" id="server-add-btn" title="Server oluştur">${Icons.plus}</div>
+      <div class="server-icon" id="server-join-btn" title="Server'a katıl">${Icons.hash}</div>
     </div>
-    <div class="sidebar">
+    <div class="sidebar" id="main-sidebar">
       <div class="sidebar-header">
-        <div class="avatar">${Store.user?.username?.[0]?.toUpperCase() || 'U'}</div>
-        <div style="flex:1">
-          <div style="font-weight:600;font-size:14px">${Store.user?.username || ''}</div>
-          <div style="font-size:12px;color:var(--color-success)">Çevrimiçi</div>
+        <div class="avatar-wrap">
+          <div class="avatar">${Store.user?.username?.[0]?.toUpperCase() || 'U'}</div>
+          <div class="presence-dot online"></div>
         </div>
-        <button class="btn-icon" id="new-chat-btn" title="Yeni sohbet">+</button>
-        <button class="btn-icon" id="logout-btn" title="Çıkış">⏻</button>
+        <div class="sidebar-user-info">
+          <div class="sidebar-username">${escHtml(Store.user?.username || '')}</div>
+          <div class="sidebar-status">Çevrimiçi</div>
+        </div>
+        <button class="btn-icon" id="new-chat-btn" title="Yeni mesaj">${Icons.plus}</button>
+        <button class="btn-icon" id="logout-btn" title="Çıkış yap">${Icons.logOut}</button>
       </div>
 
-      <div id="search-panel" class="hidden" style="padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
-        <input class="input" type="text" id="user-search-input" placeholder="Kullanıcı adı veya telefon ara..." />
+      <div id="search-panel" class="hidden" style="padding:10px 14px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
+        <input class="input input-search" type="text" id="user-search-input" placeholder="Kullanıcı ara..." />
         <div id="search-results" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
       </div>
 
-      <!-- Story halkaları -->
-      <div id="story-bar" style="display:flex;gap:12px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--border-color);scrollbar-width:none"></div>
+      <div id="story-bar" class="story-bar"></div>
 
       <div class="sidebar-search">
-        <input class="input" type="text" placeholder="Ara..." id="search-input" />
+        <input class="input input-search" type="text" placeholder="Sohbet ara..." id="search-input" />
       </div>
-      <div class="sidebar-list" id="conv-list">
-        <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">
-          Yükleniyor...
-        </div>
-      </div>
+      <div class="sidebar-list" id="conv-list"></div>
     </div>
 
-    <div style="flex:1;display:flex;flex-direction:column;height:100vh;" id="chat-area">
-      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">
-        <div style="text-align:center">
-          <div style="font-size:48px;margin-bottom:16px">💬</div>
-          <div>Bir sohbet seç veya yeni sohbet başlat</div>
-        </div>
+    <div class="chat-area" id="chat-area">
+      <div class="welcome-screen">
+        <div class="welcome-icon">${Icons.messageSquare}</div>
+        <h3>Sohbet seç</h3>
+        <p>Sol taraftan bir sohbet seç veya yeni mesaj başlat</p>
       </div>
     </div>
   `;
@@ -334,10 +341,21 @@ function renderChat() {
 
   // WebSocket mesaj dinleyici
   Socket.on('new_message', (msg) => {
-    if (msg.conversation_id !== Store.activeConvId) return;
-    // Kendi gönderdiğimiz mesaj zaten temp olarak eklendi; gerçek id ile DOM'a baktık
-    if (msg.sender_id === Store.user?.id && document.querySelector(`[data-id="${msg.id}"]`)) return;
+    // Son mesaj önizlemesini güncelle
+    Store.setLastMessage(msg.conversation_id, msg);
+    // Unread sayacı — aktif konuşma değilse artır
+    if (msg.conversation_id !== Store.activeConvId) {
+      Store.incrementUnread(msg.conversation_id);
+      renderConvList(Store.conversations);
+      return;
+    }
+    // Kendi gönderdiğimiz mesaj zaten temp olarak eklendi
+    if (msg.sender_id === Store.user?.id && document.querySelector(`[data-id="${msg.id}"]`)) {
+      renderConvList(Store.conversations);
+      return;
+    }
     appendMessage(msg);
+    renderConvList(Store.conversations);
   });
 
   // Okundu bildirimi
@@ -391,21 +409,24 @@ function restoreDmSidebar() {
   // Sidebar'ı sıfırdan DM moduna yeniden oluştur
   sidebar.innerHTML = `
     <div class="sidebar-header">
-      <div class="avatar">${Store.user?.username?.[0]?.toUpperCase() || 'U'}</div>
-      <div style="flex:1">
-        <div style="font-weight:600;font-size:14px">${Store.user?.username || ''}</div>
-        <div style="font-size:12px;color:var(--color-success)">Çevrimiçi</div>
+      <div class="avatar-wrap">
+        <div class="avatar">${Store.user?.username?.[0]?.toUpperCase() || 'U'}</div>
+        <div class="presence-dot online"></div>
       </div>
-      <button class="btn-icon" id="new-chat-btn" title="Yeni sohbet">+</button>
-      <button class="btn-icon" id="logout-btn" title="Çıkış">⏻</button>
+      <div class="sidebar-user-info">
+        <div class="sidebar-username">${escHtml(Store.user?.username || '')}</div>
+        <div class="sidebar-status">Çevrimiçi</div>
+      </div>
+      <button class="btn-icon" id="new-chat-btn" title="Yeni mesaj">${Icons.plus}</button>
+      <button class="btn-icon" id="logout-btn" title="Çıkış yap">${Icons.logOut}</button>
     </div>
-    <div id="search-panel" class="hidden" style="padding:12px 16px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
-      <input class="input" type="text" id="user-search-input" placeholder="Kullanıcı adı veya telefon ara..." />
+    <div id="search-panel" class="hidden" style="padding:10px 14px;border-bottom:1px solid var(--border-color);background:var(--bg-elevated)">
+      <input class="input input-search" type="text" id="user-search-input" placeholder="Kullanıcı ara..." />
       <div id="search-results" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
     </div>
-    <div id="story-bar" style="display:flex;gap:12px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--border-color);scrollbar-width:none"></div>
+    <div id="story-bar" class="story-bar"></div>
     <div class="sidebar-search">
-      <input class="input" type="text" placeholder="Ara..." id="search-input" />
+      <input class="input input-search" type="text" placeholder="Sohbet ara..." id="search-input" />
     </div>
     <div class="sidebar-list" id="conv-list"></div>
   `;
@@ -525,20 +546,30 @@ async function startDirectChat(targetUserId, targetUsername) {
   }
 }
 async function loadConversations() {
+  const list = document.getElementById('conv-list');
+  if (list) {
+    list.innerHTML = Array(5).fill(0).map(() => `
+      <div class="skeleton-item">
+        <div class="skeleton-avatar"></div>
+        <div class="skeleton-lines">
+          <div class="skeleton-line skeleton-line-lg"></div>
+          <div class="skeleton-line skeleton-line-sm"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
   try {
     const userId = Store.user && Store.user.id;
     if (!userId) return;
     const data = await Api.getConversations();
     const convs = data?.conversations || [];
-    // other_user_id geliyorsa userMap'e ekle
     convs.forEach(c => {
       if (c.other_user_id && c.name) Store.addUser(c.other_user_id, c.name);
     });
     Store.setConversations(convs);
     renderConvList(convs);
     loadStoryBar(convs);
-
-    // WS'e katılım bildir
     convs.forEach(conv => Socket.joinConv(conv.id));
   } catch(e) {
     console.error('Conversations yüklenemedi:', e);
@@ -552,31 +583,44 @@ function renderConvList(convs) {
 
   if (convs.length === 0) {
     list.innerHTML = `
-      <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">
-        Henüz sohbet yok
+      <div class="conv-empty-state">
+        <div class="conv-empty-icon">💬</div>
+        <div class="conv-empty-title">Henüz sohbet yok</div>
+        <div class="conv-empty-sub">Yeni mesaj butonuna bas ve sohbet başlat</div>
       </div>
     `;
     return;
   }
 
   list.innerHTML = convs.map(conv => {
-    const otherId = conv.type === 'direct' ? (conv.other_user_id || Store.getUserId(conv.name)) : null;
-    const online  = otherId ? Store.isOnline(otherId) : false;
-    const dot     = otherId
-      ? `<div class="presence-dot${online ? ' online' : ''}"></div>`
+    const otherId   = conv.type === 'direct' ? (conv.other_user_id || Store.getUserId(conv.name)) : null;
+    const online    = otherId ? Store.isOnline(otherId) : false;
+    const dot       = otherId ? `<div class="presence-dot${online ? ' online' : ''}"></div>` : '';
+    const unread    = Store.getUnread(conv.id);
+    const lastMsg   = Store.getLastMessage(conv.id);
+    const previewTxt = lastMsg
+      ? (lastMsg.sender_id === Store.user?.id ? 'Sen: ' : '') +
+        (lastMsg.content?.substring(0, 35) || '') + (lastMsg.content?.length > 35 ? '…' : '')
+      : 'Mesaj yok';
+    const timeStr   = lastMsg ? formatConvTime(lastMsg.created_at) : '';
+    const badgeHtml = unread > 0
+      ? `<div class="conv-badge">${unread > 99 ? '99+' : unread}</div>`
       : '';
+    const isActive  = conv.id === Store.activeConvId;
+
     return `
-      <div class="conv-item" data-id="${conv.id}"${otherId ? ` data-other-user-id="${otherId}"` : ''}>
+      <div class="conv-item${isActive ? ' active' : ''}" data-id="${conv.id}"${otherId ? ` data-other-user-id="${otherId}"` : ''}>
         <div class="avatar-wrap">
-          <div class="avatar">${(conv.name || '?')[0].toUpperCase()}</div>
+          <div class="avatar${conv.type === 'group' ? ' avatar-group' : ''}">${(conv.name || '?')[0].toUpperCase()}</div>
           ${dot}
         </div>
         <div class="conv-info">
-          <div class="conv-name">${conv.name || 'Sohbet'}</div>
-          <div class="conv-preview">Son mesaj...</div>
+          <div class="conv-name${unread > 0 ? ' conv-name-bold' : ''}">${escHtml(conv.name || 'Sohbet')}</div>
+          <div class="conv-preview">${escHtml(previewTxt)}</div>
         </div>
         <div class="conv-meta">
-          <div class="conv-time">--:--</div>
+          <div class="conv-time">${timeStr}</div>
+          ${badgeHtml}
         </div>
       </div>
     `;
@@ -587,8 +631,29 @@ function renderConvList(convs) {
   });
 }
 
+function formatConvTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d)) return '';
+  const now  = new Date();
+  const diff = now - d;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)    return 'Az önce';
+  if (mins < 60)   return `${mins}d`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)    return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  if (hrs < 24*7)  return d.toLocaleDateString('tr-TR', { weekday: 'short' });
+  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 async function openConversation(convId) {
   Store.setActiveConv(convId);
+  Store.resetUnread(convId);
   Socket.joinConv(convId);
 
   document.querySelectorAll('.conv-item').forEach(el => {
@@ -603,29 +668,50 @@ async function openConversation(convId) {
   const presenceColor = isOnline ? 'var(--color-success)' : 'var(--text-muted)';
 
   const chatArea = document.getElementById('chat-area');
+  const sidebar  = document.getElementById('main-sidebar');
+
+  // Mobil: sidebar gizle, chat alanı göster
+  if (window.innerWidth <= 768) {
+    sidebar?.classList.add('hidden-mobile');
+    chatArea?.classList.add('visible-mobile');
+  }
+
   chatArea.innerHTML = `
     <div id="chat-header" class="chat-header"${otherId ? ` data-other-user-id="${otherId}"` : ''}>
-      <div class="avatar">${convName[0].toUpperCase()}</div>
-      <div class="chat-header-info">
-        <h3>${convName}</h3>
-        <span id="typing-indicator" style="color:${presenceColor}">${presenceTxt}</span>
+      <button class="btn-icon mobile-back-btn" id="mobile-back-btn" title="Geri">${Icons.arrowLeft}</button>
+      <div class="avatar-wrap">
+        <div class="avatar">${escHtml(convName[0].toUpperCase())}</div>
+        ${otherId ? `<div class="presence-dot${isOnline ? ' online' : ''}"></div>` : ''}
       </div>
-      <div style="margin-left:auto;display:flex;gap:8px">
-        <button class="btn-icon" id="call-btn" title="Sesli arama">📞</button>
-        <button class="btn-icon" id="video-btn" title="Görüntülü arama">📹</button>
-        <button class="btn-icon" id="screen-btn" title="Ekran paylaş">🖥️</button>
+      <div class="chat-header-info">
+        <h3>${escHtml(convName)}</h3>
+        <span id="typing-indicator" class="chat-status" style="color:${presenceColor}">${presenceTxt}</span>
+      </div>
+      <div class="chat-header-actions">
+        <button class="btn-icon" id="call-btn" title="Sesli arama">${Icons.phone}</button>
+        <button class="btn-icon" id="video-btn" title="Görüntülü arama">${Icons.video}</button>
+        <button class="btn-icon" id="screen-btn" title="Ekran paylaş">${Icons.monitor}</button>
       </div>
     </div>
-    <div class="message-list" id="message-list"></div>
+    <div style="position:relative;flex:1;overflow:hidden;display:flex;flex-direction:column">
+      <div class="message-list" id="message-list"></div>
+      <button class="scroll-fab hidden" id="scroll-fab" title="Aşağı git">${Icons.chevronDown}</button>
+    </div>
     <div class="message-input-bar">
       <label class="btn-icon" title="Dosya gönder" style="cursor:pointer">
-        📎
+        ${Icons.paperclip}
         <input type="file" id="file-input" style="display:none" accept="image/*,video/*,.pdf,.doc,.docx" />
       </label>
       <textarea class="message-input" id="msg-input" placeholder="Mesaj yaz..." rows="1"></textarea>
-      <button class="btn btn-primary" id="send-btn">Gönder</button>
+      <button class="btn-icon-primary" id="send-btn" title="Gönder">${Icons.send}</button>
     </div>
   `;
+
+  // Mobil — geri butonu sidebar'ı göster
+  document.getElementById('mobile-back-btn')?.addEventListener('click', () => {
+    chatArea.classList.remove('visible-mobile');
+    document.getElementById('main-sidebar')?.classList.remove('hidden-mobile');
+  });
 
   const sendBtn  = document.getElementById('send-btn');
   const msgInput = document.getElementById('msg-input');
@@ -636,6 +722,12 @@ async function openConversation(convId) {
       e.preventDefault();
       sendMessage(convId, msgInput);
     }
+  });
+
+  // Auto-resize textarea
+  msgInput.addEventListener('input', () => {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 130) + 'px';
   });
 
 
@@ -650,6 +742,7 @@ async function openConversation(convId) {
     try {
       const res = await fetch('http://localhost:8080/api/v1/media/upload', {
         method: 'POST',
+        headers: { 'Authorization': `Bearer ${Store.accessToken}` },
         body: formData,
       });
       const data = await res.json();
@@ -716,12 +809,28 @@ async function openConversation(convId) {
     }).catch(() => {});
   }
 
+  // Scroll-to-bottom FAB
+  const msgList = document.getElementById('message-list');
+  const scrollFab = document.getElementById('scroll-fab');
+  if (msgList && scrollFab) {
+    msgList.addEventListener('scroll', () => {
+      const distFromBottom = msgList.scrollHeight - msgList.scrollTop - msgList.clientHeight;
+      scrollFab.classList.toggle('hidden', distFromBottom < 120); // eslint-disable-line
+    });
+    scrollFab.addEventListener('click', () => {
+      msgList.scrollTo({ top: msgList.scrollHeight, behavior: 'smooth' });
+    });
+  }
+
   // Geçmiş mesajları yükle
   try {
     const data = await Api.getMessages(convId);
     const msgs = (data?.messages || []).reverse();
     Store.setMessages(convId, msgs);
-    msgs.forEach(appendMessage);
+    // Son mesajı store'a kaydet
+    if (msgs.length > 0) Store.setLastMessage(convId, msgs[msgs.length - 1]);
+    renderMessages(msgs);
+    renderConvList(Store.conversations);
   } catch {}
 }
 
@@ -739,7 +848,7 @@ async function sendMessage(convId, input) {
     document.getElementById('edit-preview')?.remove();
     applyMessageEdit(msgId, content);
     await Api.post(`/chat/conversations/${editConvId}/messages/${msgId}/edit`, {
-      user_id: Store.user.id, content,
+      content,
     }).catch(() => {});
     return;
   }
@@ -764,12 +873,7 @@ async function sendMessage(convId, input) {
   appendMessage(tempMsg);
 
   try {
-    const result  = await Api.post('/chat/conversations/' + convId + '/messages', {
-      sender_id:    Store.user.id,
-      content,
-      type:         'text',
-      reply_to_id:  replyToId,
-    });
+    const result  = await Api.sendMessage(convId, content, 'text', replyToId);
     const realId = result?.message_id;
     // Temp element'i gerçek id ile güncelle ve "gönderildi" tikini göster
     const tempEl = document.querySelector(`[data-id="${tempId}"]`);
@@ -784,7 +888,42 @@ async function sendMessage(convId, input) {
   }
 }
 
-function appendMessage(msg) {
+function renderMessages(msgs) {
+  const list = document.getElementById('message-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  let lastDate  = null;
+  let lastSender = null;
+
+  msgs.forEach((msg, idx) => {
+    // Gün ayracı
+    const msgDate = new Date(msg.created_at);
+    const dateStr = msgDate.toDateString();
+    if (dateStr !== lastDate) {
+      lastDate = dateStr;
+      lastSender = null; // Yeni gün — sender grubunu sıfırla
+      const today     = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      let label;
+      if (dateStr === today)     label = 'Bugün';
+      else if (dateStr === yesterday) label = 'Dün';
+      else label = msgDate.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+      const sep = document.createElement('div');
+      sep.className = 'date-separator';
+      sep.innerHTML = `<span>${label}</span>`;
+      list.appendChild(sep);
+    }
+
+    const isGrouped = !msg.deleted && lastSender === msg.sender_id;
+    lastSender = msg.sender_id;
+    appendMessage(msg, isGrouped);
+  });
+
+  list.scrollTop = list.scrollHeight;
+}
+
+function appendMessage(msg, isGrouped = false) {
   const list = document.getElementById('message-list');
   if (!list) return;
 
@@ -833,9 +972,9 @@ function appendMessage(msg) {
   ).join('');
 
   const wrapper = document.createElement('div');
-  wrapper.className = 'message';
+  wrapper.className = 'message' + (isGrouped ? ' message-grouped' : '');
   wrapper.dataset.id = msg.id;
-  wrapper.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:' + (isSent ? 'flex-end' : 'flex-start') + ';margin-bottom:2px';
+  wrapper.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:' + (isSent ? 'flex-end' : 'flex-start') + ';margin-bottom:' + (isGrouped ? '1px' : '6px');
   wrapper.appendChild(el);
 
   // Reactions display
@@ -847,12 +986,17 @@ function appendMessage(msg) {
   wrapper.appendChild(reactionsEl);
 
   list.appendChild(wrapper);
-  list.scrollTop = list.scrollHeight;
 
-  // Hover ile tepki ve yanıt menüsü
-  el.addEventListener('mouseenter', () => {
-    el.style.cursor = 'pointer';
-  });
+  // Scroll-to-bottom: kullanıcı yukarı kaydırmadıysa otomatik aşağı git
+  const distFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+  if (distFromBottom < 200) {
+    list.scrollTop = list.scrollHeight;
+  }
+
+  // Son mesaj store'a kaydet (aktif konuşmada)
+  if (msg.conversation_id && !msg.id?.startsWith('temp-')) {
+    Store.setLastMessage(msg.conversation_id, msg);
+  }
 
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -860,9 +1004,7 @@ function appendMessage(msg) {
   });
 
   if (!isSent && msg.id && !msg.id.startsWith('temp-')) {
-    Api.post('/chat/conversations/' + msg.conversation_id + '/messages/' + msg.id + '/read', {
-      user_id: Store.user.id,
-    }).catch(() => {});
+    Api.post('/chat/conversations/' + msg.conversation_id + '/messages/' + msg.id + '/read', {}).catch(() => {});
   }
 }
 
@@ -891,22 +1033,27 @@ function updateMessageStatusIcon(msgId, status) {
 }
 
 function showMessageMenu(e, msg, el) {
-  document.querySelectorAll('.msg-menu').forEach(m => m.remove());
+  document.querySelectorAll('.ctx-menu').forEach(m => m.remove());
 
   const menu = document.createElement('div');
-  menu.className = 'msg-menu';
-  menu.style.cssText = 'position:fixed;left:' + e.clientX + 'px;top:' + e.clientY + 'px;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:10px;padding:6px;z-index:1000;min-width:160px;box-shadow:var(--shadow-md)';
+  menu.className = 'ctx-menu';
+
+  // Ekran sınırları içinde konumlandır
+  const x = Math.min(e.clientX, window.innerWidth - 180);
+  const y = Math.min(e.clientY, window.innerHeight - 200);
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px`;
 
   const isMine = msg.sender_id === Store.user?.id;
   const emojis = ['👍','❤️','😂','😮','😢','🔥'];
+
   menu.innerHTML = `
-    <div style="display:flex;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border-color);margin-bottom:4px">
-      ${emojis.map(em => '<span data-emoji="' + em + '" style="font-size:20px;cursor:pointer;padding:2px 4px;border-radius:4px" onmouseover="this.style.background=\'var(--bg-overlay)\'" onmouseout="this.style.background=\'transparent\'">' + em + '</span>').join('')}
+    <div class="ctx-menu-section">
+      ${emojis.map(em => `<span class="ctx-emoji-btn" data-emoji="${em}">${em}</span>`).join('')}
     </div>
-    <div class="menu-item" id="menu-reply" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">↩️ Yanıtla</div>
-    <div class="menu-item" id="menu-copy" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">📋 Kopyala</div>
-    ${isMine && !msg.deleted ? `<div class="menu-item" id="menu-edit" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">✏️ Düzenle</div>` : ''}
-    ${isMine && !msg.deleted ? `<div class="menu-item" id="menu-delete" style="padding:8px 12px;cursor:pointer;border-radius:6px;font-size:13px;color:var(--color-danger)" onmouseover="this.style.background='var(--bg-overlay)'" onmouseout="this.style.background='transparent'">🗑️ Sil</div>` : ''}
+    <button class="ctx-menu-item" id="menu-reply">${Icons.cornerUpLeft} Yanıtla</button>
+    <button class="ctx-menu-item" id="menu-copy">${Icons.copy} Kopyala</button>
+    ${isMine && !msg.deleted ? `<button class="ctx-menu-item" id="menu-edit">${Icons.edit2} Düzenle</button>` : ''}
+    ${isMine && !msg.deleted ? `<button class="ctx-menu-item danger" id="menu-delete">${Icons.trash2} Sil</button>` : ''}
   `;
 
   document.body.appendChild(menu);
@@ -949,7 +1096,7 @@ function showMessageMenu(e, msg, el) {
       menu.remove();
       document.removeEventListener('click', closeMenu);
     });
-  }, 100);
+  }, 80);
 }
 
 function startEditMessage(msg) {
@@ -979,9 +1126,7 @@ function startEditMessage(msg) {
 async function deleteMessage(msg) {
   if (!confirm('Mesajı silmek istiyor musun?')) return;
   const convId = msg.conversation_id;
-  await Api.post(`/chat/conversations/${convId}/messages/${msg.id}/delete`, {
-    user_id: Store.user.id,
-  }).catch(() => {});
+  await Api.post(`/chat/conversations/${convId}/messages/${msg.id}/delete`, {}).catch(() => {});
   // UI güncelle (WS eventi de gelecek ama local da uygula)
   applyMessageDelete(msg.id);
 }

@@ -1,4 +1,4 @@
-// ── Cengsta Paradise — Global State ──────────────────────
+// ── Orbit — Global State ──────────────────────
 // localStorage ile kalıcı, memory ile hızlı erişim
 
 const Store = {
@@ -19,6 +19,8 @@ const Store = {
     mode:             'dm', // 'dm' | 'server'
     myVoiceChannelId: null,
     voiceParticipants: {}, // channelId → [userId]
+    unreadCounts:    {},   // convId → number
+    lastMessages:    {},   // convId → { content, created_at, sender_id }
   },
 
   // ── Auth ───────────────────────────────────────────────
@@ -137,6 +139,25 @@ const Store = {
   addChannel(serverId, channel) {
     if (!this._state.channels[serverId]) this._state.channels[serverId] = [];
     this._state.channels[serverId].push(channel);
+  },
+
+  // ── Okunmamış sayaç ────────────────────────────────────
+  incrementUnread(convId) {
+    this._state.unreadCounts[convId] = (this._state.unreadCounts[convId] || 0) + 1;
+  },
+  resetUnread(convId) {
+    delete this._state.unreadCounts[convId];
+  },
+  getUnread(convId) {
+    return this._state.unreadCounts[convId] || 0;
+  },
+
+  // ── Son mesaj önizlemesi ────────────────────────────────
+  setLastMessage(convId, msg) {
+    this._state.lastMessages[convId] = msg;
+  },
+  getLastMessage(convId) {
+    return this._state.lastMessages[convId] || null;
   },
 };
 

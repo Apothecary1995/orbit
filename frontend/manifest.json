@@ -1,11 +1,11 @@
 {
-  "name": "Cengsta Paradise",
-  "short_name": "Cengsta",
+  "name": "Orbit",
+  "short_name": "Orbit",
   "description": "Güvenli mesajlaşma platformu",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0F0E1A",
-  "theme_color": "#7F77DD",
+  "background_color": "#0D0C1A",
+  "theme_color": "#7C6EF2",
   "orientation": "portrait",
   "icons": [
     {

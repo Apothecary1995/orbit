@@ -1,5 +1,5 @@
-// ── Cengsta Paradise — Service Worker ────────────────────
-const CACHE_NAME = 'cengsta-v1';
+// ── Orbit — Service Worker ────────────────────
+const CACHE_NAME = 'orbit-v1';
 
 const CACHE_FILES = [
   '/',
@@ -67,7 +67,7 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('push', (event) => {
   const data = event.data?.json() || {};
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Cengsta Paradise', {
+    self.registration.showNotification(data.title || 'Orbit', {
       body: data.body || 'Yeni mesaj',
       icon: '/assets/icons/icon-192.png',
       badge: '/assets/icons/icon-192.png',

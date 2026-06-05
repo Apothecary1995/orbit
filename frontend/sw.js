@@ -3,7 +3,7 @@ self.addEventListener('push', (event) => {
   let data;
   try { data = event.data.json(); } catch { data = { content: event.data.text() }; }
 
-  const title   = data.sender_name ? `${data.sender_name}` : 'Cengsta Paradise';
+  const title   = data.sender_name ? `${data.sender_name}` : 'Orbit';
   const options = {
     body:  data.content || 'Yeni mesaj',
     icon:  '/assets/icons/icon-192.png',

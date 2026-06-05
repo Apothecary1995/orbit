@@ -1,66 +1,83 @@
-/* ── Cengsta Paradise — Tema değişkenleri ── */
+/* ── Orbit — Design Tokens ── */
 
 :root {
   /* Ana renkler */
-  --color-primary:        #7F77DD;
-  --color-primary-dark:   #534AB7;
-  --color-primary-light:  #CECBF6;
+  --color-primary:        #7C6EF2;
+  --color-primary-dark:   #5A4ECC;
+  --color-primary-light:  #A89FF8;
+  --color-primary-faint:  rgba(124, 110, 242, 0.12);
 
-  /* Arka planlar — dark mode */
-  --bg-base:      #0F0E1A;
-  --bg-surface:   #1A1830;
-  --bg-elevated:  #24213D;
-  --bg-overlay:   #2E2B4F;
+  /* Arka planlar */
+  --bg-base:      #0D0C1A;
+  --bg-surface:   #161526;
+  --bg-elevated:  #1F1D35;
+  --bg-overlay:   #2A2847;
+  --bg-input:     #1A1830;
 
   /* Metin */
-  --text-primary:   #EEEDF8;
-  --text-secondary: #A09CC4;
-  --text-muted:     #5E5A7A;
+  --text-primary:   #F0EFF8;
+  --text-secondary: #9D99C4;
+  --text-muted:     #5C587A;
+  --text-on-primary: #FFFFFF;
 
   /* Durum renkleri */
-  --color-success: #1D9E75;
-  --color-error:   #D85A30;
-  --color-warning: #BA7517;
-  --color-info:    #185FA5;
+  --color-success: #22C78B;
+  --color-error:   #EF5350;
+  --color-warning: #F59E0B;
+  --color-danger:  #EF5350;
 
   /* Kenarlık */
-  --border-color:       rgba(127, 119, 221, 0.15);
-  --border-color-focus: rgba(127, 119, 221, 0.6);
+  --border-color:       rgba(124, 110, 242, 0.14);
+  --border-color-focus: rgba(124, 110, 242, 0.55);
+  --border-color-hover: rgba(124, 110, 242, 0.28);
 
   /* Gölge */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,0.6);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.45);
+  --shadow-md: 0 4px 20px rgba(0,0,0,0.55);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.65);
+  --shadow-glow: 0 0 40px rgba(124, 110, 242, 0.15);
 
   /* Boyutlar */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-2xl:  28px;
   --radius-full: 9999px;
 
   /* Tipografi */
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono:   'Fira Code', 'Cascadia Code', monospace;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:   'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --font-size-xs:   11px;
+  --font-size-sm:   12px;
+  --font-size-base: 14px;
+  --font-size-md:   15px;
+  --font-size-lg:   18px;
+  --font-size-xl:   24px;
 
   /* Geçiş */
-  --transition: 0.18s ease;
+  --transition:      0.15s ease;
+  --transition-slow: 0.3s ease;
 
-  /* Sidebar genişlikleri */
-  --sidebar-width:      260px;
-  --sidebar-mini-width: 68px;
+  /* Layout */
+  --sidebar-width:      280px;
+  --server-panel-width: 68px;
+  --header-height:      56px;
+  --input-bar-height:   72px;
 }
 
-/* Light mode — ileride eklenecek */
+/* Light mode (gelecek için hazır) */
 @media (prefers-color-scheme: light) {
   :root {
-    --bg-base:      #F4F3FF;
-    --bg-surface:   #FFFFFF;
-    --bg-elevated:  #EEEDFE;
-    --bg-overlay:   #E2E0FD;
-    --text-primary:   #1A1835;
-    --text-secondary: #4A4670;
+    --bg-base:    #F5F4FF;
+    --bg-surface: #FFFFFF;
+    --bg-elevated:#EDECFC;
+    --bg-overlay: #E3E1FA;
+    --bg-input:   #EEEDF9;
+    --text-primary:   #16143A;
+    --text-secondary: #4A4775;
     --text-muted:     #9490B8;
-    --border-color: rgba(83, 74, 183, 0.12);
+    --border-color:   rgba(84, 74, 183, 0.13);
   }
 }

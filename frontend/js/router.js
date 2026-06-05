@@ -1,4 +1,4 @@
-// ── Cengsta Paradise — Router ────────────────────────────
+// ── Orbit — Router ────────────────────────────
 // Hash tabanlı SPA router — #/login, #/chat, vb.
 
 const Router = {

@@ -3,12 +3,14 @@ package config
 import "os"
 
 type Config struct {
-	HTTP    HTTPConfig
-	AuthSvc GRPCServiceConfig
-	ChatSvc GRPCServiceConfig
-	Redis   RedisConfig
-	JWT     JWTConfig
-	VAPID   VAPIDConfig
+	HTTP           HTTPConfig
+	AuthSvc        GRPCServiceConfig
+	ChatSvc        GRPCServiceConfig
+	Redis          RedisConfig
+	JWT            JWTConfig
+	VAPID          VAPIDConfig
+	MinioPublicURL string
+	AllowedOrigin  string
 }
 
 type VAPIDConfig struct {
@@ -53,10 +55,12 @@ func Load() Config {
 			Secret: getEnv("JWT_SECRET", "change-me-in-production"),
 		},
 		VAPID: VAPIDConfig{
-			PublicKey:  getEnv("VAPID_PUBLIC_KEY", "BGz_wLTdx8Uv2xdNP4m-gUJJmrPhVZBtQop5wGgnzfd-EZc4m4yAy1yVHSHE_fqSPPGSiZw5tmlY4NfDSdpKgw0"),
-			PrivateKey: getEnv("VAPID_PRIVATE_KEY", "48VYnoayICdgT4Qq9M2lmcR4np0OW9dWVhlQ5_Yyues"),
+			PublicKey:  getEnv("VAPID_PUBLIC_KEY", ""),
+			PrivateKey: getEnv("VAPID_PRIVATE_KEY", ""),
 			Subject:    getEnv("VAPID_SUBJECT", "mailto:admin@cengsta.local"),
 		},
+		MinioPublicURL: getEnv("MINIO_PUBLIC_URL", "http://localhost:9000/cengsta-files"),
+		AllowedOrigin:  getEnv("ALLOWED_ORIGIN", "http://localhost:5173"),
 	}
 }
 

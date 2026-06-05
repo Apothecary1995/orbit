@@ -24,6 +24,7 @@ type Hub struct {
 	convMembers  map[string][]string
 	authClient   authpb.AuthServiceClient
 	Push         *push.Manager
+	parseToken   func(token string) (userID string, err error)
 
 	voiceMu      sync.RWMutex
 	voiceChannels map[string]map[string]bool // channelID → set of userIDs
@@ -34,12 +35,13 @@ type OutgoingMessage struct {
 	Payload interface{} `json:"payload"`
 }
 
-func NewHub(authClient authpb.AuthServiceClient, pushMgr *push.Manager) *Hub {
+func NewHub(authClient authpb.AuthServiceClient, pushMgr *push.Manager, parseToken func(string) (string, error)) *Hub {
 	return &Hub{
 		clients:       make(map[string]*Client),
 		convMembers:   make(map[string][]string),
 		authClient:    authClient,
 		Push:          pushMgr,
+		parseToken:    parseToken,
 		voiceChannels: make(map[string]map[string]bool),
 	}
 }
@@ -272,9 +274,15 @@ func (h *Hub) HandleRedisMessage(channel string, payload []byte) {
 }
 
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		http.Error(w, "user_id zorunlu", http.StatusBadRequest)
+	// Token ile kimlik doğrulama
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "token zorunlu", http.StatusUnauthorized)
+		return
+	}
+	userID, err := h.parseToken(token)
+	if err != nil {
+		http.Error(w, "geçersiz token", http.StatusUnauthorized)
 		return
 	}
 

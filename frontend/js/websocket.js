@@ -10,7 +10,7 @@ const Socket = {
     if (!Store.isLoggedIn()) return;
     if (this._ws && this._ws.readyState === WebSocket.OPEN) return;
 
-    const url = `${WS_BASE}?user_id=${Store.user.id}`;
+    const url = `${WS_BASE}?token=${encodeURIComponent(Store.accessToken)}`;
     this._ws = new WebSocket(url);
 
     this._ws.onopen = () => {
@@ -37,9 +37,15 @@ const Socket = {
       }
     };
 
-    this._ws.onclose = () => {
-      console.log(`WS kapandı, ${this._reconnectMs}ms sonra bağlanıyor...`);
+    this._ws.onclose = (event) => {
+      console.log(`WS kapandı (code=${event.code}), ${this._reconnectMs}ms sonra bağlanıyor...`);
       this._emit('disconnected');
+      // 4401 = sunucu tarafından token geçersiz olarak reddedildi
+      if (event.code === 4401) {
+        Store.clearAuth();
+        if (typeof Router !== 'undefined') Router.navigate('login');
+        return;
+      }
       setTimeout(() => this.connect(), this._reconnectMs);
       this._reconnectMs = Math.min(this._reconnectMs * 2, 30000);
     };

@@ -1,4 +1,4 @@
-// ── Cengsta Paradise — API Client ────────────────────────
+// ── Orbit — API Client ────────────────────────
 
 const API_BASE = 'http://localhost:8080/api/v1';
 
@@ -103,11 +103,12 @@ const Api = {
     return this.get(`/chat/conversations/${convId}/messages?limit=${limit}&offset=${offset}`);
   },
 
-  async sendMessage(convId, content, type = 'text') {
+  async sendMessage(convId, content, type = 'text', replyToId = '') {
     return this.post(`/chat/conversations/${convId}/messages`, {
       content,
       type,
-      sender_id: Store.user.id,
+      reply_to_id: replyToId,
+      // sender_id backend'de JWT'den alınır
     });
   },
 
@@ -116,6 +117,7 @@ const Api = {
       type,
       name,
       member_ids: memberIds,
+      // created_by backend'de JWT'den alınır, client'tan göndermeye gerek yok
     });
   },
 
@@ -183,7 +185,8 @@ const Api = {
 
   async sendChannelMessage(channelId, content, type = 'text') {
     return this.post(`/channels/${channelId}/messages`, {
-      content, type, sender_id: Store.user.id,
+      content, type,
+      // sender_id backend'de JWT'den alınır
     });
   },
 };
