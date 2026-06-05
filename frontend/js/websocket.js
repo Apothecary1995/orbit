@@ -98,10 +98,21 @@ const Socket = {
         Store.setLastMessage(p.conversation_id, p);
 
         if (p.conversation_id === Store.activeConvId) {
-          // Kendi gönderdiğimiz mesaj temp element olarak zaten eklendi — atla
-          const isSelf  = p.sender_id === Store.user?.id;
-          const inDom   = isSelf && document.querySelector(`[data-id="${p.id}"]`);
-          if (!inDom && typeof appendMessage === 'function') {
+          const isSelf = p.sender_id === Store.user?.id;
+          if (isSelf) {
+            // Kendi mesajımız: temp elementini gerçek ID ile güncelle, duplicate ekleme
+            const tempEl = document.querySelector('[data-id^="temp-"]');
+            if (tempEl) {
+              tempEl.dataset.id = p.id;
+              if (typeof updateMessageStatusIcon === 'function') {
+                updateMessageStatusIcon(p.id, 'sent');
+              }
+            }
+            // else: başka cihaz/sekmeden gönderilmiş — normal ekle
+            else if (typeof appendMessage === 'function') {
+              appendMessage(p);
+            }
+          } else if (typeof appendMessage === 'function') {
             appendMessage(p);
           }
         } else {
@@ -152,6 +163,12 @@ const Socket = {
         break;
       case 'new_conversation':
         this._emit('new_conversation', msg.payload);
+        break;
+      case 'friend_request':
+        this._emit('friend_request', msg.payload);
+        break;
+      case 'friend_accepted':
+        this._emit('friend_accepted', msg.payload);
         break;
     }
   },

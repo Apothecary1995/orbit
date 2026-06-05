@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -39,7 +40,16 @@ func main() {
 	})
 	mux := http.NewServeMux()
 
-	handler := httphandler.NewHandler(clients, hub, &cfg)
+	// Friends DB bağlantısı — başarısız olursa uyarı ver, servis çalışmaya devam eder
+	friendsDB, dbErr := httphandler.InitFriendsDB(context.Background(), cfg.Database.URL)
+	if dbErr != nil {
+		log.Printf("uyarı: friends DB bağlanamadı (%v) — arkadaşlık sistemi devre dışı", dbErr)
+		friendsDB = nil
+	} else {
+		log.Println("friends DB bağlantısı kuruldu")
+	}
+
+	handler := httphandler.NewHandler(clients, hub, &cfg, friendsDB)
 	handler.RegisterRoutes(mux)
 	mux.HandleFunc("/ws", hub.ServeWS)
 

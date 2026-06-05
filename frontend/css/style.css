@@ -556,6 +556,16 @@ a:hover { color: var(--color-primary-light); }
 
   /* Header butonları sadece ikon */
   .chat-header-actions .btn-text { display: none; }
+
+  /* Klavye açıldığında input bar yukarı kayar (dvh ile) */
+  .message-input-bar {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  /* Mesaj listesi klavye alanını hesaba katar */
+  .message-list {
+    padding-bottom: 8px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -563,4 +573,13 @@ a:hover { color: var(--color-primary-light); }
   .server-icon  { width: 38px; height: 38px; }
   .chat-area    { left: 56px; width: calc(100vw - 56px); }
   .sidebar      { width: calc(100vw - 56px); }
+}
+
+/* Çevrimdışı banner animasyonu */
+#offline-banner {
+  animation: slideDown 0.3s ease;
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to   { transform: translateY(0); }
 }

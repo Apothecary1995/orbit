@@ -29,7 +29,21 @@ const Router = {
 
   _resolve() {
     const hash = window.location.hash.replace('#/', '') || 'login';
-    const [path] = hash.split('?');
+    const [path, query] = hash.split('?');
+
+    // Davet kodu route'u: #/invite/ABC123
+    if (path.startsWith('invite/')) {
+      const code = path.slice(7);
+      if (Store.isLoggedIn()) {
+        // Giriş yaptıysa direkt kodu kullan
+        window._pendingInviteCode = code;
+        this.navigate('chat');
+      } else {
+        window._pendingInviteCode = code;
+        this.navigate('register');
+      }
+      return;
+    }
 
     if (path !== 'login' && path !== 'register' && !Store.isLoggedIn()) {
       this.navigate('login');

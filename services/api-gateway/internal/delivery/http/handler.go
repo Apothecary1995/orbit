@@ -20,6 +20,7 @@ import (
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
 	pushpkg "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -45,14 +46,16 @@ type Handler struct {
 	hub        *websocket.Hub
 	jwtSecret  string
 	minioURL   string
+	friendsDB  *pgxpool.Pool // nil = friends feature disabled
 }
 
-func NewHandler(clients *grpcclient.Clients, hub *websocket.Hub, cfg *config.Config) *Handler {
+func NewHandler(clients *grpcclient.Clients, hub *websocket.Hub, cfg *config.Config, friendsDB *pgxpool.Pool) *Handler {
 	return &Handler{
 		clients:   clients,
 		hub:       hub,
 		jwtSecret: cfg.JWT.Secret,
 		minioURL:  cfg.MinioPublicURL,
+		friendsDB: friendsDB,
 	}
 }
 
@@ -85,6 +88,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/servers", auth(h.servers))
 	mux.HandleFunc("/api/v1/servers/", auth(h.serverDetail))
 	mux.HandleFunc("/api/v1/channels/", auth(h.channelDetail))
+
+	// Friend & invite route'ları
+	mux.HandleFunc("/api/v1/friends", auth(h.friends))
+	mux.HandleFunc("/api/v1/friends/", auth(h.friendDetail))
+	mux.HandleFunc("/api/v1/invites", auth(h.invites))
+	mux.HandleFunc("/api/v1/invites/", auth(h.inviteDetail))
 }
 
 // ── Auth handler'ları ────────────────────────────────────
@@ -296,6 +305,18 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 		if !hasUser {
 			req.MemberIDs = append(req.MemberIDs, userID)
 		}
+		// Arkadaşlık kontrolü: sadece DM için
+		if req.Type == "direct" && h.friendsDB != nil {
+			for _, memberID := range req.MemberIDs {
+				if memberID == userID {
+					continue
+				}
+				if !h.AreFriends(r.Context(), userID, memberID) {
+					writeError(w, http.StatusForbidden, "sadece arkadaşlarınıza mesaj gönderebilirsiniz")
+					return
+				}
+			}
+		}
 		resp, err := h.clients.ChatService.CreateConversation(r.Context(), &chatpb.CreateConversationRequest{
 			Type:      req.Type,
 			Name:      req.Name,
@@ -309,6 +330,9 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 		}
 
 		conv := resp.Conversation
+
+		// Hub'a konuşma üyelerini kaydet — anlık WS iletimi için
+		h.hub.SetConvMembers(conv.Id, req.MemberIDs)
 
 		// Oluşturan kişinin kullanıcı adını al (DM'de karşı tarafa isim olarak gösterilecek)
 		creatorUsername := ""
@@ -395,9 +419,10 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "mesaj düzenlenemedi")
 				return
 			}
-			h.hub.BroadcastToConv(convID, map[string]interface{}{
-				"type": "message_edited", "message_id": msgID,
-				"content": req.Content, "edited_at": resp.EditedAt,
+			h.hub.BroadcastTypedToConv(convID, "message_edited", map[string]interface{}{
+				"message_id": msgID,
+				"content":    req.Content,
+				"edited_at":  resp.EditedAt,
 			})
 			writeJSON(w, http.StatusOK, map[string]interface{}{"success": true, "edited_at": resp.EditedAt})
 		case "delete":
@@ -409,8 +434,8 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "mesaj silinemedi")
 				return
 			}
-			h.hub.BroadcastToConv(convID, map[string]interface{}{
-				"type": "message_deleted", "message_id": msgID,
+			h.hub.BroadcastTypedToConv(convID, "message_deleted", map[string]interface{}{
+				"message_id": msgID,
 			})
 			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 		default:
@@ -463,6 +488,13 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "mesaj gönderilemedi")
 			return
+		}
+
+		// Konuşma üyelerini hub'a kaydet — geç gelen join_conv'dan bağımsız anlık iletim sağlar
+		if mResp, mErr := h.clients.ChatService.GetMembers(r.Context(), &chatpb.GetMembersRequest{
+			ConversationId: convID,
+		}); mErr == nil && mResp != nil && len(mResp.MemberIds) > 0 {
+			h.hub.SetConvMembers(convID, mResp.MemberIds)
 		}
 
 		h.hub.BroadcastToConv(convID, map[string]interface{}{

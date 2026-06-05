@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	authpb "github.com/Apothecary1995/cengsta-paradise/gen/auth/v1"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
@@ -301,11 +302,29 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	h.Register(client)
 	defer h.Unregister(userID)
 
+	// writeLoop: mesajları ve 30 saniyelik ping'i seri olarak yazar.
+	// Tek goroutine yazıcı olduğu için wsConn üzerinde yarış koşulu yoktur.
 	go func() {
-		for msg := range client.send {
-			if err := wsConn.WriteMessage(OpText, msg); err != nil {
-				log.Printf("WS yazma hatası: %v", err)
-				return
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case msg, ok := <-client.send:
+				if !ok {
+					// Unregister tarafından kanal kapatıldı — temiz çıkış
+					return
+				}
+				if err := wsConn.WriteMessage(OpText, msg); err != nil {
+					log.Printf("WS yazma hatası [%s]: %v", userID, err)
+					wsConn.conn.Close()
+					return
+				}
+			case <-ticker.C:
+				if err := wsConn.WriteMessage(OpPing, []byte{}); err != nil {
+					log.Printf("WS ping hatası [%s]: %v", userID, err)
+					wsConn.conn.Close()
+					return
+				}
 			}
 		}
 	}()
@@ -323,8 +342,16 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	client.send <- onlineUsers
 
 	for {
-		_, payload, err := wsConn.ReadMessage()
+		opcode, payload, err := wsConn.ReadMessage()
 		if err != nil {
+			break
+		}
+		// Pong: client ping'e yanıt verdi — bağlantı sağlıklı, devam et
+		if opcode == OpPong {
+			continue
+		}
+		// Close frame: karşı taraf bağlantıyı düzgün kapattı
+		if opcode == OpClose {
 			break
 		}
 

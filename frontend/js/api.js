@@ -189,4 +189,48 @@ const Api = {
       // sender_id backend'de JWT'den alınır
     });
   },
+
+  // ── Arkadaş endpoint'leri ──────────────────────────────
+  // GET /api/v1/friends → {friends: [{id, user_id, username, status}...]}
+  async getFriends() {
+    return this.get('/friends');
+  },
+
+  // GET /api/v1/friends/pending → {pending: [{id, from_user_id, from_username}...]}
+  async getPendingFriends() {
+    return this.get('/friends/pending');
+  },
+
+  // POST /api/v1/friends/request  body: {target_user_id}
+  async friendRequest(targetUserId) {
+    return this.post('/friends/request', { target_user_id: targetUserId });
+  },
+
+  // POST /api/v1/friends/accept  body: {friendship_id}
+  async acceptFriend(friendshipId) {
+    return this.post('/friends/accept', { friendship_id: friendshipId });
+  },
+
+  // POST /api/v1/friends/reject  body: {friendship_id}
+  async rejectFriend(friendshipId) {
+    return this.post('/friends/reject', { friendship_id: friendshipId });
+  },
+
+  // DELETE /api/v1/friends/{friendship_id}
+  async removeFriend(friendshipId) {
+    return this.delete(`/friends/${friendshipId}`);
+  },
+
+  // ── Davet kodu endpoint'leri ───────────────────────────
+  async createInvite(maxUses = 50) {
+    return this.post('/invites', { max_uses: maxUses });
+  },
+
+  async getInviteInfo(code) {
+    return this.get(`/invites/${code}`, false);
+  },
+
+  async useInvite(code) {
+    return this.post(`/invites/${code}/use`);
+  },
 };

@@ -123,14 +123,17 @@ function renderLogin() {
 
 // ── Kayıt sayfası ─────────────────────────────────────
 function renderRegister() {
+  const inviteCode = window._pendingInviteCode || '';
+
   document.getElementById('app').innerHTML = `
     <div class="auth-page">
       <div class="auth-card">
         <div class="auth-logo">
           <div class="auth-logo-icon">💬</div>
           <h1>Orbit</h1>
-          <p>Hesap oluştur</p>
+          <p>${inviteCode ? 'Davet ile kayıt ol' : 'Hesap oluştur'}</p>
         </div>
+        ${inviteCode ? `<div style="background:var(--color-primary);color:white;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;text-align:center">Davet kodu: <strong>${escHtml(inviteCode)}</strong></div>` : ''}
         <form class="auth-form" id="register-form">
           <div class="input-group">
             <label class="input-label">Kullanıcı adı</label>
@@ -171,6 +174,13 @@ function renderRegister() {
     try {
       const data = await Api.register(username, phone, password);
       Store.setAuth(data.user, data.access_token, data.refresh_token);
+
+      // Davet kodu varsa kullan (arkadaşlık oluşturur)
+      if (inviteCode) {
+        await Api.useInvite(inviteCode).catch(() => {});
+        delete window._pendingInviteCode;
+      }
+
       Socket.connect();
       Router.navigate('chat');
     } catch (err) {
@@ -389,6 +399,32 @@ function renderChat() {
     (user_ids || []).forEach(id => updatePresenceIndicator(id, true));
   Socket.on('online_users', window._onlineUsersHandler);
 
+  Socket.off('friend_request', window._friendRequestHandler);
+  window._friendRequestHandler = (data) => {
+    showToast(`${escHtml(data.from_username || 'Biri')} arkadaşlık isteği gönderdi`, 'info');
+    if (document.getElementById('friends-panel')) renderFriendsPanel();
+  };
+  Socket.on('friend_request', window._friendRequestHandler);
+
+  Socket.off('friend_accepted', window._friendAcceptedHandler);
+  window._friendAcceptedHandler = (data) => {
+    showToast(`${escHtml(data.username || 'Biri')} arkadaşlık isteğini kabul etti`, 'success');
+    if (document.getElementById('friends-panel')) renderFriendsPanel();
+  };
+  Socket.on('friend_accepted', window._friendAcceptedHandler);
+
+  // Offline mod
+  setupOfflineMode();
+
+  // Giriş yapıldıktan sonra bekleyen invite kodu uygula
+  if (window._pendingInviteCode) {
+    const code = window._pendingInviteCode;
+    delete window._pendingInviteCode;
+    Api.useInvite(code)
+      .then(() => showToast('Arkadaşlık bağlantısı kuruldu!', 'success'))
+      .catch(() => {});
+  }
+
   loadConversations();
   loadServers();
 
@@ -515,61 +551,144 @@ function restoreDmSidebar() {
 }
 
 // ── Arkadaş paneli ───────────────────────────────────────
-function renderFriendsPanel() {
+async function renderFriendsPanel() {
   const sidebar = document.querySelector('.sidebar');
   if (!sidebar) return;
 
-  const friends = Store.conversations
-    .filter(c => c.type === 'direct' && c.other_user_id)
-    .map(c => ({
-      userId: c.other_user_id,
-      name:   c.name || Store.getUsername(c.other_user_id) || 'Bilinmiyor',
-      convId: c.id,
-      online: Store.isOnline(c.other_user_id),
-    }))
-    .sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+  const hasServers = Store.servers && Store.servers.length > 0;
 
-  const onlineCount = friends.filter(f => f.online).length;
-  const hasServers  = Store.servers && Store.servers.length > 0;
-
+  // Geçici içerik göster
   sidebar.innerHTML = `
     <div class="sidebar-header">
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;font-size:15px;color:var(--text-primary)">Arkadaşlar</div>
-        <div style="font-size:11px;color:var(--text-muted)">${onlineCount} çevrimiçi · ${friends.length} toplam</div>
+        <div style="font-size:11px;color:var(--text-muted)">Yükleniyor...</div>
       </div>
       <button class="btn-icon" id="add-friend-btn" title="Arkadaş ekle">${Icons.userPlus}</button>
+      <button class="btn-icon" id="create-invite-btn" title="Davet linki oluştur" style="font-size:16px">🔗</button>
       <button class="btn-icon" id="logout-btn" title="Çıkış yap">${Icons.logOut}</button>
     </div>
     <div id="friends-panel" style="flex:1;overflow-y:auto;padding:8px 0">
-      ${friends.length === 0 ? `
-        <div style="padding:40px 16px;text-align:center;color:var(--text-muted)">
-          <div style="font-size:40px;margin-bottom:12px">👥</div>
-          <div style="font-size:14px;font-weight:600;margin-bottom:6px">Henüz arkadaşın yok</div>
-          <div style="font-size:12px">Mesajlaştığın kişiler burada görünür</div>
-        </div>
-      ` : friends.map(f => friendItem(f, hasServers)).join('')}
+      <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">Yükleniyor...</div>
     </div>
   `;
 
   document.getElementById('add-friend-btn').addEventListener('click', showAddFriendModal);
+  document.getElementById('create-invite-btn').addEventListener('click', showCreateInviteModal);
   document.getElementById('logout-btn').addEventListener('click', () => {
     Socket.disconnect();
     Store.clearAuth();
     Router.navigate('login');
   });
 
-  document.querySelectorAll('[data-friend-conv]').forEach(el => {
+  // API'den arkadaş listesi çek
+  let friends = [];
+  let pending = [];
+  try {
+    const [fData, pData] = await Promise.all([
+      Api.getFriends().catch(() => null),
+      Api.getPendingFriends().catch(() => null),
+    ]);
+    friends = fData?.friends || [];
+    pending = pData?.requests || [];
+  } catch {
+    // 503 veya ağ hatası — DM tabanlı fallback
+    friends = Store.conversations
+      .filter(c => c.type === 'direct' && c.other_user_id)
+      .map(c => ({
+        id:       c.other_user_id,
+        username: c.name || Store.getUsername(c.other_user_id) || 'Bilinmiyor',
+        conv_id:  c.id,
+      }));
+  }
+
+  // conv_id eksikse Store'dan bul (API yanıtında user_id = diğer kullanıcının ID'si)
+  friends = friends.map(f => {
+    const uid = f.user_id || f.id; // API: user_id, fallback Store tabanlı: id
+    if (!f.conv_id) {
+      const conv = Store.conversations.find(c => c.type === 'direct' && c.other_user_id === uid);
+      f.conv_id = conv?.id || null;
+    }
+    f._userId = uid;
+    f.online = Store.isOnline(uid);
+    return f;
+  });
+
+  friends.sort((a, b) => (b.online ? 1 : 0) - (a.online ? 1 : 0));
+
+  const onlineCount = friends.filter(f => f.online).length;
+  const panel = document.getElementById('friends-panel');
+  if (!panel) return;
+
+  // Bekleyen istekler bölümü (API: {id: friendshipId, from_user_id, from_username})
+  const pendingHtml = pending.length > 0 ? `
+    <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px">
+      Bekleyen istekler (${pending.length})
+    </div>
+    ${pending.map(p => {
+      const name = p.from_username || p.username || '?';
+      const fid  = p.id; // friendship_id
+      return `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;margin:0 8px">
+        <div class="avatar avatar-sm">${escHtml(name[0].toUpperCase())}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text-primary)">${escHtml(name)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">arkadaşlık isteği</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          <button class="btn btn-primary" style="padding:4px 10px;font-size:12px" data-accept="${escHtml(fid)}">Kabul</button>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:12px" data-reject="${escHtml(fid)}">Reddet</button>
+        </div>
+      </div>
+    `}).join('')}
+    <div style="height:1px;background:var(--border-color);margin:8px 16px"></div>
+  ` : '';
+
+  const friendsHtml = friends.length === 0 ? `
+    <div style="padding:40px 16px;text-align:center;color:var(--text-muted)">
+      <div style="font-size:40px;margin-bottom:12px">👥</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:6px">Henüz arkadaşın yok</div>
+      <div style="font-size:12px">Arkadaş ekle butonuyla istek gönderebilirsin</div>
+    </div>
+  ` : `
+    <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.7px">
+      Arkadaşlar — ${onlineCount} çevrimiçi
+    </div>
+    ${friends.map(f => friendItem(f, hasServers)).join('')}
+  `;
+
+  panel.innerHTML = pendingHtml + friendsHtml;
+
+  // Yeni bant genişliği göstergesi
+  const hdrSub = sidebar.querySelector('.sidebar-header div[style*="font-size:11px"]');
+  if (hdrSub) hdrSub.textContent = `${onlineCount} çevrimiçi · ${friends.length} toplam`;
+
+  // Kabul / reddet butonları
+  panel.querySelectorAll('[data-accept]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await Api.acceptFriend(btn.dataset.accept).catch(() => {});
+      renderFriendsPanel();
+    });
+  });
+  panel.querySelectorAll('[data-reject]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await Api.rejectFriend(btn.dataset.reject).catch(() => {});
+      renderFriendsPanel();
+    });
+  });
+
+  // Arkadaşa tıkla → DM aç
+  panel.querySelectorAll('[data-friend-conv]').forEach(el => {
     el.addEventListener('click', (e) => {
       if (e.target.closest('[data-invite-btn]')) return;
       document.querySelectorAll('.server-icon').forEach(s => s.classList.remove('active'));
-      document.getElementById('server-dm-btn').classList.add('active');
+      document.getElementById('server-dm-btn')?.classList.add('active');
       restoreDmSidebar();
       openConversation(el.dataset.friendConv);
     });
   });
 
-  document.querySelectorAll('[data-invite-btn]').forEach(btn => {
+  panel.querySelectorAll('[data-invite-btn]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       showInviteServerPicker(btn.dataset.friendConvId, btn);
@@ -578,28 +697,38 @@ function renderFriendsPanel() {
 }
 
 function friendItem(f, hasServers) {
-  const inviteBtn = hasServers ? `
+  // API yanıtı: {id: friendshipId, user_id: otherUserId, username, conv_id, online, _userId}
+  // Eski Store tabanlı: {userId, name, convId, online}
+  const userId  = f._userId  || f.user_id || f.userId || f.id;
+  const name    = f.username || f.name || '?';
+  const convId  = f.conv_id  || f.convId || '';
+
+  const inviteBtn = hasServers && convId ? `
     <button class="btn-icon" title="Sunucuya davet et" data-invite-btn
-            data-friend-conv-id="${escHtml(f.convId)}"
+            data-friend-conv-id="${escHtml(convId)}"
             style="flex-shrink:0">
       ${Icons.userPlus}
     </button>` : '';
 
+  const msgIcon = convId
+    ? `<div style="color:var(--text-muted);display:flex;align-items:center;padding:4px">${Icons.messageSquare}</div>`
+    : '';
+
   return `
-    <div class="conv-item" data-friend-conv="${escHtml(f.convId)}"
-         data-other-user-id="${escHtml(f.userId)}" style="cursor:pointer">
+    <div class="conv-item" ${convId ? `data-friend-conv="${escHtml(convId)}"` : ''}
+         data-other-user-id="${escHtml(userId)}" style="cursor:${convId ? 'pointer' : 'default'}">
       <div class="avatar-wrap">
-        <div class="avatar">${escHtml(f.name[0].toUpperCase())}</div>
+        <div class="avatar">${escHtml(name[0].toUpperCase())}</div>
         <div class="presence-dot${f.online ? ' online' : ''}"></div>
       </div>
       <div class="conv-info">
-        <div class="conv-name">${escHtml(f.name)}</div>
+        <div class="conv-name">${escHtml(name)}</div>
         <div class="conv-preview" style="color:${f.online ? 'var(--color-success)' : 'var(--text-muted)'}">
           ${f.online ? '● Çevrimiçi' : '○ Çevrimdışı'}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:2px;flex-shrink:0">
-        <div style="color:var(--text-muted);display:flex;align-items:center;padding:4px">${Icons.messageSquare}</div>
+        ${msgIcon}
         ${inviteBtn}
       </div>
     </div>
@@ -676,6 +805,52 @@ async function sendServerInviteToDm(convId, server) {
   }
 }
 
+async function showCreateInviteModal() {
+  const existing = document.getElementById('create-invite-modal');
+  if (existing) { existing.remove(); return; }
+
+  const modal = document.createElement('div');
+  modal.id = 'create-invite-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:var(--radius-lg);padding:24px;width:400px;max-width:90vw;box-shadow:var(--shadow-lg)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <h3 style="font-size:18px;font-weight:700;margin:0">Davet Linki</h3>
+        <button class="btn-icon" id="close-invite-modal">${Icons.x}</button>
+      </div>
+      <div id="invite-link-area" style="text-align:center;padding:16px">
+        <div style="color:var(--text-muted);font-size:13px">Oluşturuluyor...</div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById('close-invite-modal').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+  try {
+    const data = await Api.createInvite(50);
+    const code = data?.code || data?.invite?.code;
+    if (!code) throw new Error('kod alınamadı');
+    const link = `${window.location.origin}${window.location.pathname}#/invite/${code}`;
+    document.getElementById('invite-link-area').innerHTML = `
+      <div style="background:var(--bg-overlay);border-radius:8px;padding:12px 14px;font-family:monospace;font-size:13px;color:var(--text-primary);word-break:break-all;margin-bottom:12px">
+        ${escHtml(link)}
+      </div>
+      <button id="copy-invite-link" class="btn btn-primary" style="width:100%">Kopyala</button>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px">Bu link ile kayıt olan kişi seni otomatik arkadaş olarak ekler</div>
+    `;
+    document.getElementById('copy-invite-link').addEventListener('click', () => {
+      navigator.clipboard.writeText(link).then(() => {
+        document.getElementById('copy-invite-link').textContent = 'Kopyalandı!';
+      }).catch(() => {});
+    });
+  } catch (err) {
+    document.getElementById('invite-link-area').innerHTML = `
+      <div style="color:var(--color-error);font-size:13px">Hata: ${escHtml(err.message || 'oluşturulamadı')}</div>
+    `;
+  }
+}
+
 function showAddFriendModal() {
   const existing = document.getElementById('add-friend-modal');
   if (existing) { existing.remove(); return; }
@@ -735,20 +910,25 @@ async function searchFriendCandidates(q) {
           ${escHtml(u.username)}
         </div>
         <button class="btn btn-primary" style="padding:6px 12px;font-size:12px"
-                data-uid="${escHtml(u.id)}" data-uname="${escHtml(u.username)}" data-action="send-dm">
-          Mesaj gönder
+                data-uid="${escHtml(u.id)}" data-uname="${escHtml(u.username)}" data-action="add-friend">
+          Arkadaş ekle
         </button>
       </div>
     `).join('');
 
-    results.querySelectorAll('[data-action="send-dm"]').forEach(btn => {
+    results.querySelectorAll('[data-action="add-friend"]').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const modal = document.getElementById('add-friend-modal');
-        if (modal) modal.remove();
-        document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
-        document.getElementById('server-dm-btn').classList.add('active');
-        restoreDmSidebar();
-        await startDirectChat(btn.dataset.uid, btn.dataset.uname);
+        btn.disabled = true;
+        btn.textContent = 'Gönderiliyor...';
+        try {
+          await Api.friendRequest(btn.dataset.uid);
+          btn.textContent = 'İstek gönderildi';
+          btn.style.background = 'var(--color-success)';
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = 'Arkadaş ekle';
+          showToast(err.message || 'Hata oluştu', 'error');
+        }
       });
     });
   } catch {
@@ -820,7 +1000,11 @@ async function startDirectChat(targetUserId, targetUsername) {
       openConversation(conv.id);
     }
   } catch (e) {
-    console.error('Sohbet oluşturulamadı:', e);
+    if (e.message?.includes('arkadaş')) {
+      showToast('Sadece arkadaşlarına mesaj gönderebilirsin. Önce arkadaşlık isteği gönder.', 'error');
+    } else {
+      console.error('Sohbet oluşturulamadı:', e);
+    }
   }
 }
 async function loadConversations() {
@@ -1077,6 +1261,19 @@ async function openConversation(convId) {
   window._deleteHandler = ({ message_id }) => applyMessageDelete(message_id);
   Socket.on('message_deleted', window._deleteHandler);
 
+  // Mobil swipe: sağa kaydırınca sidebar aç
+  if (window.innerWidth <= 768) {
+    let touchStartX = 0;
+    chatArea.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    chatArea.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (dx > 60) {
+        chatArea.classList.remove('visible-mobile');
+        document.getElementById('main-sidebar')?.classList.remove('hidden-mobile');
+      }
+    }, { passive: true });
+  }
+
   // Çevrimdışıysa son görülmeyi çek
   if (otherId && !isOnline) {
     Api.get(`/auth/users/${otherId}`).then(data => {
@@ -1157,6 +1354,13 @@ async function sendMessage(convId, input) {
   };
   appendMessage(tempMsg);
 
+  // Çevrimdışıysa kuyruğa al
+  if (!navigator.onLine) {
+    _offlineQueue.push({ convId, content, replyToId });
+    updateMessageStatusIcon(tempId, 'failed');
+    return;
+  }
+
   try {
     const result  = await Api.sendMessage(convId, content, 'text', replyToId);
     const realId = result?.message_id;
@@ -1170,6 +1374,10 @@ async function sendMessage(convId, input) {
   } catch (err) {
     console.error('Mesaj gönderilemedi:', err);
     updateMessageStatusIcon(tempId, 'failed');
+    // Ağ hatası gibi görünüyorsa kuyruğa al
+    if (!navigator.onLine || err.message?.includes('fetch')) {
+      _offlineQueue.push({ convId, content, replyToId });
+    }
   }
 }
 
@@ -1769,6 +1977,57 @@ function render404() {
       </div>
     </div>
   `;
+}
+
+// ── Çevrimdışı mod ────────────────────────────────────
+const _offlineQueue = { _key: 'orbit_msg_queue', get() { try { return JSON.parse(localStorage.getItem(this._key) || '[]'); } catch { return []; } }, set(q) { try { localStorage.setItem(this._key, JSON.stringify(q)); } catch {} }, push(item) { const q = this.get(); q.push(item); this.set(q); }, clear() { localStorage.removeItem(this._key); } };
+
+function showOfflineBanner() {
+  if (document.getElementById('offline-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'offline-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#e74c3c;color:white;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;z-index:9999;display:flex;align-items:center;justify-content:center;gap:8px';
+  banner.innerHTML = '⚠️ Bağlantı kesildi — mesajlar tekrar bağlanınca gönderilecek';
+  document.body.appendChild(banner);
+}
+
+function hideOfflineBanner() {
+  document.getElementById('offline-banner')?.remove();
+}
+
+async function flushOfflineQueue() {
+  const queue = _offlineQueue.get();
+  if (queue.length === 0) return;
+  _offlineQueue.clear();
+  for (const item of queue) {
+    try {
+      await Api.sendMessage(item.convId, item.content, 'text', item.replyToId || '');
+    } catch {
+      _offlineQueue.push(item);
+    }
+  }
+}
+
+function setupOfflineMode() {
+  if (window._offlineModeSetup) return;
+  window._offlineModeSetup = true;
+
+  if (!navigator.onLine) showOfflineBanner();
+
+  window.addEventListener('offline', () => {
+    showOfflineBanner();
+  });
+
+  window.addEventListener('online', async () => {
+    hideOfflineBanner();
+    Socket.connect();
+    await flushOfflineQueue();
+  });
+
+  // WS yeniden bağlandığında da kuyruğu boşalt
+  Socket.off('connected', window._wsReconnectFlush);
+  window._wsReconnectFlush = () => flushOfflineQueue();
+  Socket.on('connected', window._wsReconnectFlush);
 }
 
 // ── Toast bildirimleri ────────────────────────────────
