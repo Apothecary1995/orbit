@@ -231,13 +231,25 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		type convWithOther struct {
-			*chatpb.Conversation
+		type convResponse struct {
+			ID          string `json:"id"`
+			Type        string `json:"type"`
+			Name        string `json:"name"`
+			AvatarURL   string `json:"avatar_url,omitempty"`
+			CreatedBy   string `json:"created_by"`
+			CreatedAt   string `json:"created_at"`
 			OtherUserID string `json:"other_user_id,omitempty"`
 		}
-		enriched := make([]convWithOther, 0, len(resp.Conversations))
+		enriched := make([]convResponse, 0, len(resp.Conversations))
 		for _, c := range resp.Conversations {
-			entry := convWithOther{Conversation: c}
+			entry := convResponse{
+				ID:        c.Id,
+				Type:      c.Type,
+				Name:      c.Name,
+				AvatarURL: c.AvatarUrl,
+				CreatedBy: c.CreatedBy,
+				CreatedAt: c.CreatedAt,
+			}
 			if c.Type == "direct" {
 				mResp, err := h.clients.ChatService.GetMembers(r.Context(), &chatpb.GetMembersRequest{
 					ConversationId: c.Id,
@@ -246,6 +258,10 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 					for _, id := range mResp.MemberIds {
 						if id != userID {
 							entry.OtherUserID = id
+							// Karşı tarafın gerçek kullanıcı adını auth-svc'den al
+							if uResp, uErr := h.clients.AuthService.GetUser(r.Context(), &authpb.GetUserRequest{UserId: id}); uErr == nil && uResp.User != nil {
+								entry.Name = uResp.User.Username
+							}
 							break
 						}
 					}
@@ -291,7 +307,39 @@ func (h *Handler) conversations(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "sohbet oluşturulamadı")
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]interface{}{"conversation": resp.Conversation})
+
+		conv := resp.Conversation
+
+		// Oluşturan kişinin kullanıcı adını al (DM'de karşı tarafa isim olarak gösterilecek)
+		creatorUsername := ""
+		if uResp, uErr := h.clients.AuthService.GetUser(r.Context(), &authpb.GetUserRequest{UserId: userID}); uErr == nil && uResp.User != nil {
+			creatorUsername = uResp.User.Username
+		}
+
+		// Diğer üyelere yeni konuşmayı WS üzerinden bildir
+		for _, memberID := range req.MemberIDs {
+			if memberID == userID {
+				continue
+			}
+			convName := conv.Name
+			if req.Type == "direct" && creatorUsername != "" {
+				convName = creatorUsername // Karşı taraf oluşturanın adını görür
+			}
+			h.hub.SendToUser(memberID, websocket.OutgoingMessage{
+				Type: "new_conversation",
+				Payload: map[string]interface{}{
+					"id":            conv.Id,
+					"type":          conv.Type,
+					"name":          convName,
+					"avatar_url":    conv.AvatarUrl,
+					"created_by":    conv.CreatedBy,
+					"created_at":    conv.CreatedAt,
+					"other_user_id": userID,
+				},
+			})
+		}
+
+		writeJSON(w, http.StatusCreated, map[string]interface{}{"conversation": conv})
 
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")

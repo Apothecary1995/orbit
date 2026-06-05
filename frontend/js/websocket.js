@@ -8,6 +8,7 @@ const Socket = {
 
   connect() {
     if (!Store.isLoggedIn()) return;
+    if (!Store.accessToken) return; // Token yokken bağlanma — router zaten refresh ediyor
     if (this._ws && this._ws.readyState === WebSocket.OPEN) return;
 
     const url = `${WS_BASE}?token=${encodeURIComponent(Store.accessToken)}`;
@@ -90,10 +91,26 @@ const Socket = {
   _handleMessage(msg) {
     console.log('WS mesaj:', msg);
     switch (msg.type) {
-      case 'new_message':
-        Store.addMessage(msg.payload.conversation_id, msg.payload);
-        this._emit('new_message', msg.payload);
+      case 'new_message': {
+        const p = msg.payload;
+        if (!p || !p.conversation_id) break;
+        Store.addMessage(p.conversation_id, p);
+        Store.setLastMessage(p.conversation_id, p);
+
+        if (p.conversation_id === Store.activeConvId) {
+          // Kendi gönderdiğimiz mesaj temp element olarak zaten eklendi — atla
+          const isSelf  = p.sender_id === Store.user?.id;
+          const inDom   = isSelf && document.querySelector(`[data-id="${p.id}"]`);
+          if (!inDom && typeof appendMessage === 'function') {
+            appendMessage(p);
+          }
+        } else {
+          Store.incrementUnread(p.conversation_id);
+        }
+        if (typeof renderConvList === 'function') renderConvList(Store.conversations);
+        this._emit('new_message', p);
         break;
+      }
       case 'connected':
         console.log('WS onaylandı');
         break;
@@ -132,6 +149,9 @@ const Socket = {
         break;
       case 'voice_signal':
         this._emit('voice_signal', msg.payload);
+        break;
+      case 'new_conversation':
+        this._emit('new_conversation', msg.payload);
         break;
     }
   },

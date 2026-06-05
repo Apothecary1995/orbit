@@ -17,21 +17,9 @@ const Router = {
     window.addEventListener('hashchange', () => this._resolve());
 
     // Sayfa açılışında refresh token varsa access token yenile
-    // Böylece access token hiç localStorage'a yazılmıyor
     if (Store.refreshToken && !Store.accessToken) {
-      try {
-        const data = await fetch('/api/v1/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: Store.refreshToken }),
-        }).then(r => r.json());
-
-        if (data?.access_token) {
-          Store.setAuth(Store.user, data.access_token, data.refresh_token || Store.refreshToken);
-        } else {
-          Store.clearAuth();
-        }
-      } catch {
+      const ok = await Api.refresh();
+      if (!ok) {
         Store.clearAuth();
       }
     }

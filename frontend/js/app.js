@@ -231,6 +231,7 @@ function renderChat() {
   document.getElementById('app').innerHTML = `
     <div class="server-panel" id="server-panel">
       <div class="server-icon active" id="server-dm-btn" title="Direkt Mesajlar">${Icons.messageSquare}</div>
+      <div class="server-icon" id="server-friends-btn" title="Arkadaşlar">${Icons.users}</div>
       <div class="server-divider"></div>
       <div id="server-icons"></div>
       <div class="server-divider" id="server-icons-divider" style="display:none"></div>
@@ -339,33 +340,45 @@ function renderChat() {
     searchTimer = setTimeout(() => searchUsers(q), 400);
   });
 
-  // WebSocket mesaj dinleyici
-  Socket.on('new_message', (msg) => {
-    // Son mesaj önizlemesini güncelle
-    Store.setLastMessage(msg.conversation_id, msg);
-    // Unread sayacı — aktif konuşma değilse artır
-    if (msg.conversation_id !== Store.activeConvId) {
-      Store.incrementUnread(msg.conversation_id);
-      renderConvList(Store.conversations);
-      return;
+  // WebSocket mesaj dinleyici — handler birikimsini önlemek için off→on
+  Socket.off('new_message', window._newMessageHandler);
+  window._newMessageHandler = (msg) => {
+    // DOM güncelleme websocket.js _handleMessage'da yapılıyor.
+    // Burada sadece kendi gönderdiğimiz mesajın temp→real geçişini tamamla.
+    if (msg.sender_id === Store.user?.id) {
+      const tempEl = document.querySelector('[data-id^="temp-"]');
+      if (tempEl && msg.id) tempEl.dataset.id = msg.id;
+      updateMessageStatusIcon(msg.id, 'sent');
     }
-    // Kendi gönderdiğimiz mesaj zaten temp olarak eklendi
-    if (msg.sender_id === Store.user?.id && document.querySelector(`[data-id="${msg.id}"]`)) {
-      renderConvList(Store.conversations);
-      return;
-    }
-    appendMessage(msg);
-    renderConvList(Store.conversations);
-  });
+  };
+  Socket.on('new_message', window._newMessageHandler);
 
   // Okundu bildirimi
-  Socket.on('read_receipt', ({ message_id, reader_id }) => {
-    if (reader_id === Store.user?.id) return; // kendi okuduğumuz — skip
+  Socket.off('read_receipt', window._readReceiptHandler);
+  window._readReceiptHandler = ({ message_id, reader_id }) => {
+    if (reader_id === Store.user?.id) return;
     updateMessageStatusIcon(message_id, 'read');
-  });
+  };
+  Socket.on('read_receipt', window._readReceiptHandler);
+
+  // Yeni konuşma bildirimi (karşı taraf DM açtığında)
+  Socket.off('new_conversation', window._newConvHandler);
+  window._newConvHandler = (conv) => {
+    const exists = Store.conversations.some(c => c.id === conv.id);
+    if (!exists) {
+      if (conv.other_user_id && conv.name) Store.addUser(conv.other_user_id, conv.name);
+      Store.conversations.unshift(conv);
+      renderConvList(Store.conversations);
+      Socket.joinConv(conv.id);
+    }
+  };
+  Socket.on('new_conversation', window._newConvHandler);
 
   Socket.off('presence', window._presenceHandler);
-  window._presenceHandler = ({ user_id, online }) => updatePresenceIndicator(user_id, online);
+  window._presenceHandler = ({ user_id, online }) => {
+    updatePresenceIndicator(user_id, online);
+    if (document.getElementById('friends-panel')) renderFriendsPanel();
+  };
   Socket.on('presence', window._presenceHandler);
 
   Socket.off('online_users', window._onlineUsersHandler);
@@ -391,6 +404,25 @@ function renderChat() {
           <div style="text-align:center">
             <div style="font-size:48px;margin-bottom:16px">💬</div>
             <div>Bir sohbet seç veya yeni sohbet başlat</div>
+          </div>
+        </div>
+      `;
+    }
+  });
+
+  document.getElementById('server-friends-btn').addEventListener('click', () => {
+    Store.setActiveServer(null);
+    Store.setActiveChannel(null);
+    document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
+    document.getElementById('server-friends-btn').classList.add('active');
+    renderFriendsPanel();
+    const chatArea = document.getElementById('chat-area');
+    if (chatArea && !Store.activeConvId) {
+      chatArea.innerHTML = `
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted)">
+          <div style="text-align:center">
+            <div style="font-size:48px;margin-bottom:16px">👥</div>
+            <div>Bir arkadaş seç ve sohbet başlat</div>
           </div>
         </div>
       `;
@@ -477,6 +509,170 @@ function restoreDmSidebar() {
 
   renderConvList(Store.conversations);
   loadStories();
+}
+
+// ── Arkadaş paneli ───────────────────────────────────────
+function renderFriendsPanel() {
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+
+  const friends = Store.conversations
+    .filter(c => c.type === 'direct' && c.other_user_id)
+    .map(c => ({
+      userId: c.other_user_id,
+      name:   c.name || Store.getUsername(c.other_user_id) || 'Bilinmiyor',
+      convId: c.id,
+      online: Store.isOnline(c.other_user_id),
+    }));
+
+  const onlineFriends  = friends.filter(f => f.online);
+  const offlineFriends = friends.filter(f => !f.online);
+
+  sidebar.innerHTML = `
+    <div class="sidebar-header">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:15px;color:var(--text-primary)">Arkadaşlar</div>
+      </div>
+      <button class="btn-icon" id="add-friend-btn" title="Arkadaş ekle">${Icons.userPlus}</button>
+      <button class="btn-icon" id="logout-btn" title="Çıkış yap">${Icons.logOut}</button>
+    </div>
+    <div id="friends-panel" style="flex:1;overflow-y:auto;padding:8px 0">
+      ${onlineFriends.length > 0 ? `
+        <div style="padding:12px 16px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px">
+          Çevrimiçi — ${onlineFriends.length}
+        </div>
+        ${onlineFriends.map(f => friendItem(f)).join('')}
+      ` : ''}
+      ${offlineFriends.length > 0 ? `
+        <div style="padding:12px 16px 4px;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px">
+          Çevrimdışı — ${offlineFriends.length}
+        </div>
+        ${offlineFriends.map(f => friendItem(f)).join('')}
+      ` : ''}
+      ${friends.length === 0 ? `
+        <div style="padding:40px 16px;text-align:center;color:var(--text-muted)">
+          <div style="font-size:40px;margin-bottom:12px">👥</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px">Henüz arkadaşın yok</div>
+          <div style="font-size:12px">Mesajlaştığın kişiler burada görünür</div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  document.getElementById('add-friend-btn').addEventListener('click', showAddFriendModal);
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    Socket.disconnect();
+    Store.clearAuth();
+    Router.navigate('login');
+  });
+
+  document.querySelectorAll('[data-friend-conv]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.server-icon').forEach(s => s.classList.remove('active'));
+      document.getElementById('server-dm-btn').classList.add('active');
+      restoreDmSidebar();
+      openConversation(el.dataset.friendConv);
+    });
+  });
+}
+
+function friendItem(f) {
+  return `
+    <div class="conv-item" data-friend-conv="${escHtml(f.convId)}" style="cursor:pointer">
+      <div class="avatar-wrap">
+        <div class="avatar">${escHtml(f.name[0].toUpperCase())}</div>
+        <div class="presence-dot${f.online ? ' online' : ''}"></div>
+      </div>
+      <div class="conv-info">
+        <div class="conv-name">${escHtml(f.name)}</div>
+        <div class="conv-preview" style="color:${f.online ? 'var(--color-success)' : 'var(--text-muted)'}">
+          ${f.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+        </div>
+      </div>
+      <div style="flex-shrink:0;color:var(--text-muted)">${Icons.messageSquare}</div>
+    </div>
+  `;
+}
+
+function showAddFriendModal() {
+  const existing = document.getElementById('add-friend-modal');
+  if (existing) { existing.remove(); return; }
+
+  const modal = document.createElement('div');
+  modal.id = 'add-friend-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+  modal.innerHTML = `
+    <div style="background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:var(--radius-lg);padding:24px;width:400px;max-width:90vw;box-shadow:var(--shadow-lg)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <h3 style="font-size:18px;font-weight:700;margin:0">Arkadaş Ekle</h3>
+        <button class="btn-icon" id="close-friend-modal">${Icons.x}</button>
+      </div>
+      <input class="input" type="text" id="friend-search-input" placeholder="Kullanıcı adı ara..."
+             style="width:100%;box-sizing:border-box;margin-bottom:12px" autocomplete="off" />
+      <div id="friend-search-results" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto"></div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const input = document.getElementById('friend-search-input');
+  input.focus();
+
+  let timer;
+  input.addEventListener('input', (e) => {
+    clearTimeout(timer);
+    const q = e.target.value.trim();
+    const results = document.getElementById('friend-search-results');
+    if (q.length < 2) { results.innerHTML = ''; return; }
+    timer = setTimeout(() => searchFriendCandidates(q), 400);
+  });
+
+  document.getElementById('close-friend-modal').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+}
+
+async function searchFriendCandidates(q) {
+  const results = document.getElementById('friend-search-results');
+  if (!results) return;
+  results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:4px">Aranıyor...</div>';
+
+  try {
+    const data = await Api.get(`/auth/search?q=${encodeURIComponent(q)}`);
+    const users = (data?.users || []).filter(u => u.id !== Store.user?.id);
+    users.forEach(u => Store.addUser(u.id, u.username));
+
+    if (users.length === 0) {
+      results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:4px">Kullanıcı bulunamadı</div>';
+      return;
+    }
+
+    results.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius-md);background:var(--bg-overlay)">
+        <div class="avatar avatar-sm">${escHtml((u.username || '?')[0].toUpperCase())}</div>
+        <div style="flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary)">
+          ${escHtml(u.username)}
+        </div>
+        <button class="btn btn-primary" style="padding:6px 12px;font-size:12px"
+                data-uid="${escHtml(u.id)}" data-uname="${escHtml(u.username)}" data-action="send-dm">
+          Mesaj gönder
+        </button>
+      </div>
+    `).join('');
+
+    results.querySelectorAll('[data-action="send-dm"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const modal = document.getElementById('add-friend-modal');
+        if (modal) modal.remove();
+        document.querySelectorAll('.server-icon').forEach(el => el.classList.remove('active'));
+        document.getElementById('server-dm-btn').classList.add('active');
+        restoreDmSidebar();
+        await startDirectChat(btn.dataset.uid, btn.dataset.uname);
+      });
+    });
+  } catch {
+    const results2 = document.getElementById('friend-search-results');
+    if (results2) results2.innerHTML = '<div style="font-size:12px;color:var(--color-error);padding:4px">Hata oluştu</div>';
+  }
 }
 
 async function searchUsers(q) {
@@ -740,7 +936,7 @@ async function openConversation(convId) {
     formData.append('file', file);
 
     try {
-      const res = await fetch('http://localhost:8080/api/v1/media/upload', {
+      const res = await fetch(`${API_BASE}/media/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${Store.accessToken}` },
         body: formData,
@@ -826,10 +1022,17 @@ async function openConversation(convId) {
   try {
     const data = await Api.getMessages(convId);
     const msgs = (data?.messages || []).reverse();
-    Store.setMessages(convId, msgs);
-    // Son mesajı store'a kaydet
+
+    // Fetch sırasında WS ile gelen mesajları kaybetme
+    const alreadyInStore = Store.getMessages(convId);
+    const historyIds = new Set(msgs.map(m => m.id));
+    const wsPending = alreadyInStore.filter(
+      m => !historyIds.has(m.id) && !m.id?.startsWith('temp-')
+    );
+
+    Store.setMessages(convId, [...msgs, ...wsPending]);
     if (msgs.length > 0) Store.setLastMessage(convId, msgs[msgs.length - 1]);
-    renderMessages(msgs);
+    renderMessages([...msgs, ...wsPending]);
     renderConvList(Store.conversations);
   } catch {}
 }
