@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:latest AS builder
 WORKDIR /build
 COPY frontend/server.go .
 RUN go mod init orbit-frontend && \
