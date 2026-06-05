@@ -100,18 +100,18 @@ const Socket = {
         if (p.conversation_id === Store.activeConvId) {
           const isSelf = p.sender_id === Store.user?.id;
           if (isSelf) {
-            // Kendi mesajımız: temp elementini gerçek ID ile güncelle, duplicate ekleme
             const tempEl = document.querySelector('[data-id^="temp-"]');
             if (tempEl) {
+              // WS önce geldi: temp → gerçek ID
               tempEl.dataset.id = p.id;
               if (typeof updateMessageStatusIcon === 'function') {
                 updateMessageStatusIcon(p.id, 'sent');
               }
+            } else if (!document.querySelector(`[data-id="${p.id}"]`)) {
+              // HTTP önce geldi VE element mevcut değil → başka cihaz/sekme
+              if (typeof appendMessage === 'function') appendMessage(p);
             }
-            // else: başka cihaz/sekmeden gönderilmiş — normal ekle
-            else if (typeof appendMessage === 'function') {
-              appendMessage(p);
-            }
+            // else: HTTP zaten temp'i gerçek ID'ye çevirdi → element DOM'da, atla
           } else if (typeof appendMessage === 'function') {
             appendMessage(p);
           }
@@ -169,6 +169,9 @@ const Socket = {
         break;
       case 'friend_accepted':
         this._emit('friend_accepted', msg.payload);
+        break;
+      case 'read_receipt':
+        this._emit('read_receipt', msg.payload);
         break;
     }
   },

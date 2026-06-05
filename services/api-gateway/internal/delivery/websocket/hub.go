@@ -528,6 +528,21 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 					},
 				})
 			}
+
+		case "read_receipt":
+			// Client: {message_id, sender_id} → gönderenin tikini ✓✓ yap
+			msgID, _ := payloadMap["message_id"].(string)
+			senderID, _ := payloadMap["sender_id"].(string)
+			if msgID == "" || senderID == "" || senderID == userID {
+				continue
+			}
+			h.SendToUser(senderID, OutgoingMessage{
+				Type: "read_receipt",
+				Payload: map[string]interface{}{
+					"message_id": msgID,
+					"reader_id":  userID,
+				},
+			})
 		}
 	}
 }

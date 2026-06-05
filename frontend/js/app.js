@@ -353,11 +353,9 @@ function renderChat() {
   // WebSocket mesaj dinleyici — handler birikimsini önlemek için off→on
   Socket.off('new_message', window._newMessageHandler);
   window._newMessageHandler = (msg) => {
-    // DOM güncelleme websocket.js _handleMessage'da yapılıyor.
-    // Burada sadece kendi gönderdiğimiz mesajın temp→real geçişini tamamla.
-    if (msg.sender_id === Store.user?.id) {
-      const tempEl = document.querySelector('[data-id^="temp-"]');
-      if (tempEl && msg.id) tempEl.dataset.id = msg.id;
+    // websocket.js _handleMessage temp→real geçişini ve DOM eklemeyi zaten yapıyor.
+    // Burada sadece status icon'ı güvenlik neti olarak güncelle.
+    if (msg.sender_id === Store.user?.id && msg.id && !msg.id.startsWith('temp-')) {
       updateMessageStatusIcon(msg.id, 'sent');
     }
   };
@@ -1548,7 +1546,12 @@ function appendMessage(msg, isGrouped = false) {
   });
 
   if (!isSent && msg.id && !msg.id.startsWith('temp-')) {
+    // HTTP: DB'de okundu olarak işaretle
     Api.post('/chat/conversations/' + msg.conversation_id + '/messages/' + msg.id + '/read', {}).catch(() => {});
+    // WS: gönderenin tikini anında güncelle (hub.go → SendToUser)
+    if (msg.sender_id) {
+      Socket.send('read_receipt', { message_id: msg.id, sender_id: msg.sender_id });
+    }
   }
 }
 
