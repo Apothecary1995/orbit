@@ -1,4 +1,4 @@
-const WS_BASE = 'ws://localhost:8080/ws';
+const WS_BASE = 'wss://orbit.ahmetcengiz.dev/ws';
 
 const Socket = {
   _ws:          null,

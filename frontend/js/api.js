@@ -1,6 +1,6 @@
 // ── Orbit — API Client ────────────────────────
 
-const API_BASE = 'http://localhost:8080/api/v1';
+const API_BASE = 'https://orbit.ahmetcengiz.dev/api/v1';
 
 const Api = {
   // ── Temel fetch wrapper ────────────────────────────────
