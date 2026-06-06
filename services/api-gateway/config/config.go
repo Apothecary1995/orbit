@@ -9,13 +9,17 @@ type Config struct {
 	Redis          RedisConfig
 	JWT            JWTConfig
 	VAPID          VAPIDConfig
-	Database       DatabaseConfig
+	DB             DatabaseConfig
 	MinioPublicURL string
 	AllowedOrigin  string
 }
 
 type DatabaseConfig struct {
-	URL string
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Name     string
 }
 
 type VAPIDConfig struct {
@@ -64,8 +68,12 @@ func Load() Config {
 			PrivateKey: getEnv("VAPID_PRIVATE_KEY", ""),
 			Subject:    getEnv("VAPID_SUBJECT", "mailto:admin@cengsta.local"),
 		},
-		Database: DatabaseConfig{
-			URL: getEnv("DATABASE_URL", "postgres://cengsta:secret@localhost:5432/cengsta_paradise"),
+		DB: DatabaseConfig{
+			Host:     getEnv("DB_HOST", "localhost"),
+			Port:     getEnv("DB_PORT", "5432"),
+			User:     getEnv("DB_USER", "cengsta"),
+			Password: getEnv("DB_PASSWORD", "secret"),
+			Name:     getEnv("DB_NAME", "cengsta_paradise"),
 		},
 		MinioPublicURL: getEnv("MINIO_PUBLIC_URL", "http://localhost:9000/orbit-files"),
 		AllowedOrigin:  getEnv("ALLOWED_ORIGIN", "http://localhost:5173"),

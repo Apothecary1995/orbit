@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -42,7 +43,9 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Friends DB bağlantısı — başarısız olursa uyarı ver, servis çalışmaya devam eder
-	friendsDB, dbErr := httphandler.InitFriendsDB(context.Background(), cfg.Database.URL)
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		cfg.DB.Host, cfg.DB.Port, cfg.DB.User, cfg.DB.Password, cfg.DB.Name)
+	friendsDB, dbErr := httphandler.InitFriendsDB(context.Background(), dsn)
 	if dbErr != nil {
 		log.Printf("uyarı: friends DB bağlanamadı (%v) — arkadaşlık sistemi devre dışı", dbErr)
 		friendsDB = nil
