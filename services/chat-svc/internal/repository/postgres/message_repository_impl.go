@@ -49,7 +49,7 @@ func (r *messageRepository) ListByConversation(ctx context.Context, conversation
 		SELECT id, conversation_id, sender_id, type, content, encrypted_key,
 		       status, reply_to_id, edited_at, deleted_at, created_at
 		FROM messages
-		WHERE conversation_id = $1 AND deleted_at IS NULL
+		WHERE conversation_id = $1
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3
 	`
@@ -90,7 +90,7 @@ func (r *messageRepository) UpdateContent(ctx context.Context, id string, conten
 func (r *messageRepository) SoftDelete(ctx context.Context, id string) error {
 	now := time.Now()
 	_, err := r.db.Exec(ctx,
-		`UPDATE messages SET deleted_at = $1 WHERE id = $2`,
+		`UPDATE messages SET deleted_at = $1, content = '' WHERE id = $2`,
 		now, id,
 	)
 	return err

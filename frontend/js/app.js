@@ -1768,6 +1768,7 @@ function showMessageMenu(e, msg, el) {
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9000`;
 
   const isMine = msg.sender_id === Store.user?.id;
+  const isDeleted = msg.deleted || el.closest('.message')?.dataset.deleted === 'true';
   const emojis = ['👍','❤️','😂','😮','😢','🔥'];
 
   menu.innerHTML = `
@@ -1778,9 +1779,9 @@ function showMessageMenu(e, msg, el) {
     <button class="ctx-menu-item" id="menu-copy">📋 Kopyala</button>
     <button class="ctx-menu-item" id="menu-forward">➡️ İlet</button>
     <button class="ctx-menu-item" id="menu-select">☑️ Seç</button>
-    ${isMine && !msg.deleted ? `<button class="ctx-menu-item" id="menu-edit">✏️ Düzenle</button>` : ''}
-    ${isMine && !msg.deleted ? `<button class="ctx-menu-item danger" id="menu-delete-all">🗑️ Herkesten Sil</button>` : ''}
-    ${!isMine && !msg.deleted ? `<button class="ctx-menu-item danger" id="menu-delete-me">🗑️ Sil (Sadece Benden)</button>` : ''}
+    ${isMine && !isDeleted ? `<button class="ctx-menu-item" id="menu-edit">✏️ Düzenle</button>` : ''}
+    ${isMine && !isDeleted ? `<button class="ctx-menu-item danger" id="menu-delete-all">🗑️ Herkesten Sil</button>` : ''}
+    ${!isMine && !isDeleted ? `<button class="ctx-menu-item danger" id="menu-delete-me">🗑️ Sil (Sadece Benden)</button>` : ''}
   `;
 
   document.body.appendChild(menu);
@@ -1915,6 +1916,7 @@ function showForwardModal(msgs) {
 function applyMessageDelete(msgId) {
   const wrapper = document.querySelector(`.message[data-id="${msgId}"]`);
   if (!wrapper) return;
+  wrapper.dataset.deleted = 'true';
   const bubble = wrapper.querySelector('.message-bubble');
   if (!bubble) return;
   const timeEl = bubble.querySelector('.message-time');

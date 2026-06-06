@@ -181,6 +181,11 @@ services:
       GATEWAY_HTTP_PORT: ":8080"
       AUTH_SVC_ADDR:     auth-svc:50051
       CHAT_SVC_ADDR:     chat-svc:50052
+      DB_HOST:           postgres
+      DB_PORT:           "5432"
+      DB_USER:           ${DB_USER:-cengsta}
+      DB_PASSWORD:       ${DB_PASSWORD:-secret}
+      DB_NAME:           ${DB_NAME:-cengsta_db}
       REDIS_ADDR:        redis:6379
       REDIS_PASSWORD:    ${REDIS_PASSWORD:-secret}
       JWT_SECRET:        ${JWT_SECRET:?JWT_SECRET env var zorunlu}
@@ -190,6 +195,10 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT:     ${VAPID_SUBJECT:-mailto:admin@example.com}
     depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
       auth-svc:
         condition: service_started
       chat-svc:
