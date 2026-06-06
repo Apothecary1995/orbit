@@ -614,7 +614,9 @@ func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
 		guestID, now.Unix(), ip)
 
 	if h.redis != nil {
-		// Bağlantı testi
+		log.Printf("Redis client: addr=%s password_set=%v", h.redis.Addr(), h.redis.HasPassword())
+
+		// Ping testi
 		pingDone := make(chan error, 1)
 		go func() {
 			pong, pingErr := h.redis.Ping()
@@ -629,6 +631,22 @@ func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Manuel SET testi
+		testDone := make(chan error, 1)
+		go func() {
+			testErr := h.redis.Set("test:gateway:probe", "1", 30)
+			log.Printf("Redis test SET: key=test:gateway:probe err=%v", testErr)
+			testDone <- testErr
+		}()
+		select {
+		case <-testDone:
+		case <-ctx.Done():
+			log.Printf("Redis test SET timeout: %v", ctx.Err())
+			writeError(w, http.StatusGatewayTimeout, "oturum kaydedilemedi")
+			return
+		}
+
+		// Guest session kaydet
 		done := make(chan error, 1)
 		go func() { done <- h.redis.Set("guest:"+guestID, guestData, 86400) }()
 		select {
@@ -638,11 +656,14 @@ func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusServiceUnavailable, "oturum kaydedilemedi")
 				return
 			}
+			log.Printf("Redis guest kaydedildi: key=guest:%s", guestID)
 		case <-ctx.Done():
 			log.Printf("Redis timeout: %v", ctx.Err())
 			writeError(w, http.StatusGatewayTimeout, "oturum kaydedilemedi")
 			return
 		}
+	} else {
+		log.Println("Redis client nil — guest session kaydedilmedi")
 	}
 
 	token, err := createGuestJWT(guestID, h.jwtSecret)

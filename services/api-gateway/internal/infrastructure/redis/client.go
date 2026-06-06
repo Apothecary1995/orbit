@@ -19,6 +19,9 @@ func NewClient(addr, password string) *Client {
 	return &Client{addr: addr, password: password}
 }
 
+func (c *Client) Addr() string        { return c.addr }
+func (c *Client) HasPassword() bool   { return c.password != "" }
+
 func (c *Client) dial() (net.Conn, *bufio.Reader, error) {
 	conn, err := net.Dial("tcp", c.addr)
 	if err != nil {
