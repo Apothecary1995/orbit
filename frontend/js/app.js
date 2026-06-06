@@ -130,11 +130,7 @@ function renderLogin() {
           </div>
 
           <!-- Orta: dikey ayraç -->
-          <div class="auth-col-divider">
-            <div class="auth-col-line"></div>
-            <span class="auth-col-or">veya</span>
-            <div class="auth-col-line"></div>
-          </div>
+          <div class="auth-col-divider"><span>veya</span></div>
 
           <!-- Sağ: Misafir modu -->
           <div class="auth-col auth-col-guest">
