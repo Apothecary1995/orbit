@@ -81,40 +81,84 @@ document.addEventListener('click', (e) => {
 });
 
 // ── Login sayfası ─────────────────────────────────────
+const MASK_SVG = `<svg width="44" height="36" viewBox="0 0 44 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M22 2C9 2 1 9 1 18C1 25 7 31 14 33L18 34C19.3 34.3 20.6 34.5 22 34.5C23.4 34.5 24.7 34.3 26 34L30 33C37 31 43 25 43 18C43 9 35 2 22 2Z" fill="var(--color-primary)" fill-opacity="0.85"/>
+  <ellipse cx="12" cy="18" rx="5.5" ry="4" fill="white" fill-opacity="0.92"/>
+  <ellipse cx="32" cy="18" rx="5.5" ry="4" fill="white" fill-opacity="0.92"/>
+  <path d="M17.5 23 Q22 26.5 26.5 23" stroke="white" stroke-width="1.2" stroke-opacity="0.45" fill="none" stroke-linecap="round"/>
+  <path d="M7 8 Q4 3 7 1" stroke="var(--color-primary-light)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <path d="M10 6.5 Q8 2 11 0.5" stroke="var(--color-primary-light)" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.6"/>
+  <path d="M37 8 Q40 3 37 1" stroke="var(--color-primary-light)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <path d="M34 6.5 Q36 2 33 0.5" stroke="var(--color-primary-light)" stroke-width="1.2" fill="none" stroke-linecap="round" opacity="0.6"/>
+  <circle cx="7" cy="1" r="2" fill="var(--color-primary-light)"/>
+  <circle cx="37" cy="1" r="2" fill="var(--color-primary-light)"/>
+</svg>`;
+
 function renderLogin() {
   document.getElementById('app').innerHTML = `
     <div class="auth-page">
-      <div class="auth-card">
+      <div class="auth-card auth-card-wide">
+
         <div class="auth-logo">
           <div class="auth-logo-icon">💬</div>
           <h1>Orbit</h1>
           <p>Güvenli · Hızlı · Gerçek zamanlı</p>
         </div>
-        <form class="auth-form" id="login-form">
-          <div class="input-group">
-            <label class="input-label">Telefon numarası</label>
-            <input class="input" type="tel" id="login-phone" placeholder="+905551234567" required />
+
+        <div class="auth-columns">
+
+          <!-- Sol: Normal giriş -->
+          <div class="auth-col auth-col-login">
+            <p class="auth-col-title">Giriş Yap</p>
+            <form class="auth-form" id="login-form">
+              <div class="input-group">
+                <label class="input-label">Telefon numarası</label>
+                <input class="input" type="tel" id="login-phone" placeholder="+905551234567" required />
+              </div>
+              <div class="input-group">
+                <label class="input-label">Şifre</label>
+                <input class="input" type="password" id="login-password" placeholder="••••••••" required />
+              </div>
+              <button class="btn btn-primary btn-full" type="submit" id="login-btn">
+                Giriş yap
+              </button>
+              <div id="login-error" class="hidden auth-error"></div>
+            </form>
+            <div class="auth-switch">
+              Hesabın yok mu? <a href="#/register">Kayıt ol</a>
+            </div>
           </div>
-          <div class="input-group">
-            <label class="input-label">Şifre</label>
-            <input class="input" type="password" id="login-password" placeholder="••••••••" required />
+
+          <!-- Orta: dikey ayraç -->
+          <div class="auth-col-divider">
+            <div class="auth-col-line"></div>
+            <span class="auth-col-or">veya</span>
+            <div class="auth-col-line"></div>
           </div>
-          <button class="btn btn-primary btn-full" type="submit" id="login-btn">
-            Giriş yap
-          </button>
-          <div id="login-error" class="hidden auth-error"></div>
-        </form>
-        <div class="auth-divider" style="display:flex;align-items:center;gap:8px;margin:8px 0;color:var(--text-muted);font-size:12px">
-          <hr style="flex:1;border:none;border-top:1px solid var(--border-color)" />
-          veya
-          <hr style="flex:1;border:none;border-top:1px solid var(--border-color)" />
-        </div>
-        <button class="btn btn-ghost btn-full" id="guest-btn" style="font-size:14px">
-          Misafir olarak devam et
-        </button>
-        <div class="auth-switch">
-          Hesabın yok mu? <a href="#/register">Kayıt ol</a>
-        </div>
+
+          <!-- Sağ: Misafir modu -->
+          <div class="auth-col auth-col-guest">
+            <div class="guest-icon-wrap">${MASK_SVG}</div>
+            <p class="auth-col-title" style="text-align:center">Misafir Modu</p>
+
+            <ul class="guest-features">
+              <li class="guest-feat-ok">Kayıt gerekmez</li>
+              <li class="guest-feat-ok">Telefon / e-posta istenmez</li>
+              <li class="guest-feat-ok">Veriler yalnızca geçici bellekte tutulur</li>
+              <li class="guest-feat-ok">Çıkış yapınca tüm veriler silinir</li>
+              <li class="guest-feat-ok">IP adresi 24 saat sonra otomatik silinir</li>
+              <li class="guest-feat-warn">Dosya yükleme kullanılamaz</li>
+              <li class="guest-feat-warn">Sunucu oluşturulamaz</li>
+              <li class="guest-feat-warn">Hikayeler kullanılamaz</li>
+            </ul>
+
+            <button class="btn btn-guest btn-full" id="guest-btn">
+              Misafir olarak başla →
+            </button>
+            <p class="guest-note">Oturum 24 saat sonra otomatik sona erer</p>
+          </div>
+
+        </div><!-- .auth-columns -->
       </div>
     </div>
   `;
@@ -159,7 +203,7 @@ function renderLogin() {
       Router.navigate('chat');
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = 'Misafir olarak devam et';
+      btn.textContent = 'Misafir olarak başla →';
     }
   });
 }
