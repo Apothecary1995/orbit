@@ -178,6 +178,12 @@ const Socket = {
       case 'read_receipt':
         this._emit('read_receipt', msg.payload);
         break;
+      case 'reaction_added':
+        this._emit('reaction_added', msg.payload);
+        break;
+      case 'voice_meta':
+        this._emit('voice_meta', msg.payload);
+        break;
     }
   },
 

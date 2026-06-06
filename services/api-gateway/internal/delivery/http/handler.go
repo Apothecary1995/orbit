@@ -77,31 +77,33 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/login", h.login)
 	mux.HandleFunc("/api/v1/auth/refresh", h.refresh)
 	mux.HandleFunc("/api/v1/auth/guest", h.guestLogin)
-	mux.HandleFunc("/api/v1/auth/guest/logout", auth(h.guestLogout))
+	mux.HandleFunc("/api/v1/auth/guest/logout", h.guestLogout)
 	mux.HandleFunc("/api/v1/notifications/vapid-public-key", h.vapidPublicKey)
 
-	// Protected auth endpoint'leri
+	noGuest := func(fn http.HandlerFunc) http.HandlerFunc {
+		return auth(denyGuest(fn))
+	}
+
+	// Protected auth endpoint'leri — guest izinli
 	mux.HandleFunc("/api/v1/auth/logout", auth(h.logout))
 	mux.HandleFunc("/api/v1/auth/search", auth(h.searchUser))
 	mux.HandleFunc("/api/v1/auth/users/", auth(h.getUser))
 
-	// Protected chat endpoint'leri
-	mux.HandleFunc("/api/v1/notifications/subscribe", auth(h.pushSubscribe))
-	mux.HandleFunc("/api/v1/stories", auth(h.stories))
+	// Protected chat endpoint'leri — guest izinli
 	mux.HandleFunc("/api/v1/chat/conversations", auth(h.conversations))
 	mux.HandleFunc("/api/v1/chat/conversations/", auth(h.conversationDetail))
-	mux.HandleFunc("/api/v1/media/upload", auth(h.uploadMedia))
 
-	// Protected server & kanal route'ları
-	mux.HandleFunc("/api/v1/servers", auth(h.servers))
-	mux.HandleFunc("/api/v1/servers/", auth(h.serverDetail))
-	mux.HandleFunc("/api/v1/channels/", auth(h.channelDetail))
-
-	// Friend & invite route'ları
-	mux.HandleFunc("/api/v1/friends", auth(h.friends))
-	mux.HandleFunc("/api/v1/friends/", auth(h.friendDetail))
-	mux.HandleFunc("/api/v1/invites", auth(h.invites))
-	mux.HandleFunc("/api/v1/invites/", auth(h.inviteDetail))
+	// Guest erişimi yasak
+	mux.HandleFunc("/api/v1/notifications/subscribe", noGuest(h.pushSubscribe))
+	mux.HandleFunc("/api/v1/stories", noGuest(h.stories))
+	mux.HandleFunc("/api/v1/media/upload", noGuest(h.uploadMedia))
+	mux.HandleFunc("/api/v1/servers", noGuest(h.servers))
+	mux.HandleFunc("/api/v1/servers/", noGuest(h.serverDetail))
+	mux.HandleFunc("/api/v1/channels/", noGuest(h.channelDetail))
+	mux.HandleFunc("/api/v1/friends", noGuest(h.friends))
+	mux.HandleFunc("/api/v1/friends/", noGuest(h.friendDetail))
+	mux.HandleFunc("/api/v1/invites", noGuest(h.invites))
+	mux.HandleFunc("/api/v1/invites/", noGuest(h.inviteDetail))
 }
 
 // ── Auth handler'ları ────────────────────────────────────
@@ -581,34 +583,49 @@ func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
 		return
 	}
-	var req struct {
-		GuestID string `json:"guest_id"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
 
-	if req.GuestID == "" || !strings.HasPrefix(req.GuestID, "Misafir_") {
-		b := make([]byte, 2)
-		rand.Read(b)
-		req.GuestID = fmt.Sprintf("Misafir_%04d", int(b[0])<<8|int(b[1])&0x270F%10000)
+	// 4 rastgele byte → 8 hex karakter → guest_XXXXXXXX
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		writeError(w, http.StatusInternalServerError, "id oluşturulamadı")
+		return
+	}
+	guestID := fmt.Sprintf("guest_%x", b)
+
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = r.RemoteAddr
+		if i := strings.LastIndex(ip, ":"); i != -1 {
+			ip = ip[:i]
+		}
+	} else {
+		// X-Forwarded-For virgülle ayrılmış olabilir — ilki gerçek istemci IP'si
+		ip = strings.TrimSpace(strings.SplitN(ip, ",", 2)[0])
 	}
 
-	guestData := fmt.Sprintf(`{"username":%q,"guest":true}`, req.GuestID)
+	now := time.Now()
+	guestData := fmt.Sprintf(`{"username":%q,"role":"guest","created_at":%d,"ip":%q}`,
+		guestID, now.Unix(), ip)
+
 	if h.redis != nil {
-		if err := h.redis.Set("guest:"+req.GuestID, guestData, 28800); err != nil {
+		if err := h.redis.Set("guest:"+guestID, guestData, 86400); err != nil {
 			log.Printf("Redis guest kayıt hatası: %v", err)
 		}
 	}
 
-	token, err := createGuestJWT(req.GuestID, h.jwtSecret)
+	token, err := createGuestJWT(guestID, h.jwtSecret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "token oluşturulamadı")
 		return
 	}
 
+	log.Printf("guest session created: id=%s ip=%s", guestID, ip)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"access_token": token,
-		"guest_id":     req.GuestID,
-		"username":     req.GuestID,
+		"user_id":      guestID,
+		"username":     guestID,
+		"role":         "guest",
 	})
 }
 
@@ -617,8 +634,23 @@ func (h *Handler) guestLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
 		return
 	}
+
 	userID := userIDFromCtx(r.Context())
-	if h.redis != nil {
+
+	// sendBeacon token'ı body'den de okuyabilir (Authorization header gönderilemez)
+	if userID == "" {
+		var req struct {
+			Token string `json:"token"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Token != "" {
+			if claims, err := parseJWTClaims(req.Token, h.jwtSecret); err == nil {
+				userID = claims.Sub
+			}
+		}
+	}
+
+	if h.redis != nil && userID != "" {
 		h.redis.Del("guest:" + userID)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
@@ -627,8 +659,8 @@ func (h *Handler) guestLogout(w http.ResponseWriter, r *http.Request) {
 func createGuestJWT(guestID, secret string) (string, error) {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now()
-	claimsJSON := fmt.Sprintf(`{"sub":%q,"username":%q,"guest":true,"iat":%d,"exp":%d}`,
-		guestID, guestID, now.Unix(), now.Add(8*time.Hour).Unix())
+	claimsJSON := fmt.Sprintf(`{"sub":%q,"username":%q,"role":"guest","guest":true,"iat":%d,"exp":%d}`,
+		guestID, guestID, now.Unix(), now.Add(24*time.Hour).Unix())
 	payload := base64.RawURLEncoding.EncodeToString([]byte(claimsJSON))
 	sigInput := header + "." + payload
 	mac := hmac.New(sha256.New, []byte(secret))

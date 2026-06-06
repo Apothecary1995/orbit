@@ -20,6 +20,7 @@ const guestKey contextKey = "isGuest"
 type jwtClaims struct {
 	Sub      string `json:"sub"`
 	DeviceID string `json:"device_id"`
+	Role     string `json:"role"`
 	Guest    bool   `json:"guest"`
 	Iat      int64  `json:"iat"`
 	Exp      int64  `json:"exp"`
@@ -94,6 +95,17 @@ func userIDFromCtx(ctx context.Context) string {
 func isGuestFromCtx(ctx context.Context) bool {
 	v, _ := ctx.Value(guestKey).(bool)
 	return v
+}
+
+// denyGuest wraps a handler and returns 403 if the caller is a guest.
+func denyGuest(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if isGuestFromCtx(r.Context()) {
+			writeError(w, http.StatusForbidden, "misafir hesaplar bu özelliği kullanamaz")
+			return
+		}
+		next(w, r)
+	}
 }
 
 // ParseToken is exported so main.go can pass it to the WebSocket hub.

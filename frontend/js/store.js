@@ -25,17 +25,25 @@ const Store = {
 
   // ── Auth ───────────────────────────────────────────────
   // Güvenlik notu:
-  //   Access token → sadece bellekte (XSS çalsa bile kısa ömürlü: 15dk)
-  //   Refresh token → localStorage (session kalıcılığı için, DB'de doğrulanıyor)
-  //   Kullanıcı bilgisi → localStorage (hassas değil)
+  //   Normal kullanıcı: access token → bellekte; refresh token → localStorage
+  //   Misafir: access token → sessionStorage (sekme kapanınca siler); refresh token yok
   setAuth(user, accessToken, refreshToken) {
     this._state.user         = user;
-    this._state.accessToken  = accessToken;   // bellekte tut, localStorage'a yazma
+    this._state.accessToken  = accessToken;
     this._state.refreshToken = refreshToken;
-    localStorage.setItem('cp_refresh_token', refreshToken);
-    localStorage.setItem('cp_user',          JSON.stringify(user));
-    // Eski access token varsa sil
-    localStorage.removeItem('cp_access_token');
+
+    if (user?.role === 'guest') {
+      // Misafir: sadece sessionStorage — sekme kapanınca otomatik silinir
+      sessionStorage.setItem('cp_guest_token', accessToken);
+      sessionStorage.setItem('cp_guest_user',  JSON.stringify(user));
+      localStorage.removeItem('cp_access_token');
+      localStorage.removeItem('cp_refresh_token');
+      localStorage.removeItem('cp_user');
+    } else {
+      localStorage.setItem('cp_refresh_token', refreshToken);
+      localStorage.setItem('cp_user',          JSON.stringify(user));
+      localStorage.removeItem('cp_access_token');
+    }
   },
 
   clearAuth() {
@@ -45,22 +53,39 @@ const Store = {
     localStorage.removeItem('cp_access_token');
     localStorage.removeItem('cp_refresh_token');
     localStorage.removeItem('cp_user');
+    sessionStorage.removeItem('cp_guest_token');
+    sessionStorage.removeItem('cp_guest_user');
   },
 
   loadFromStorage() {
-    // Access token localStorage'dan okunmaz — sadece refresh token ile yenilenir
+    // Misafir oturumu?
+    const guestToken = sessionStorage.getItem('cp_guest_token');
+    const guestUserStr = sessionStorage.getItem('cp_guest_user');
+    if (guestToken && guestUserStr) {
+      try {
+        this._state.user        = JSON.parse(guestUserStr);
+        this._state.accessToken = guestToken;
+        return;
+      } catch {}
+    }
+    // Normal kullanıcı
     this._state.refreshToken = localStorage.getItem('cp_refresh_token');
     const userStr = localStorage.getItem('cp_user');
     if (userStr) {
       try { this._state.user = JSON.parse(userStr); } catch {}
     }
-    // Güvenlik: eski access token varsa temizle
     localStorage.removeItem('cp_access_token');
   },
 
   isLoggedIn() {
-    // Refresh token varsa oturum açık sayılır, access token yenilenecek
+    if (this._state.user?.role === 'guest') {
+      return !!this._state.accessToken;
+    }
     return !!this._state.refreshToken && !!this._state.user;
+  },
+
+  isGuest() {
+    return this._state.user?.role === 'guest';
   },
 
   // ── Getters ────────────────────────────────────────────

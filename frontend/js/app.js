@@ -1,6 +1,7 @@
 // ── Orbit — Ana uygulama ──────────────────────
 
 async function setupPushNotifications() {
+  if (Store.isGuest()) return;
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js');
@@ -52,12 +53,26 @@ document.addEventListener('DOMContentLoaded', () => {
   Router.init();
 });
 
+// Sekme kapanınca misafir oturumunu Redis'ten sil
+window.addEventListener('beforeunload', () => {
+  if (Store.isGuest() && Store.accessToken) {
+    const token = Store.accessToken;
+    // keepalive: true — sayfa unload olsa bile istek tamamlanır
+    fetch(API_BASE + '/auth/guest/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({}),
+      keepalive: true,
+    }).catch(() => {});
+  }
+});
+
 // ── Global event delegation — tüm dinamik butonlar için ──
 document.addEventListener('click', (e) => {
   // Logout — her yerden çalışır
   if (e.target.closest('#logout-btn')) {
     e.preventDefault();
-    if (Store.user?.guest) Api.guestLogout().catch(() => {});
+    if (Store.isGuest()) Api.guestLogout().catch(() => {});
     Socket.disconnect();
     Store.clearAuth();
     Router.navigate('login');
@@ -136,7 +151,7 @@ function renderLogin() {
     try {
       const data = await Api.guestLogin();
       Store.setAuth(
-        { id: data.guest_id, username: data.username, guest: true },
+        { id: data.user_id, username: data.username, role: 'guest' },
         data.access_token,
         ''
       );
@@ -311,6 +326,24 @@ function renderChat() {
       </div>
     </div>
   `;
+
+  // Misafir UI
+  if (Store.isGuest()) {
+    // Server panelini gizle
+    document.getElementById('server-panel').style.display = 'none';
+    // Story bar'ı gizle
+    document.getElementById('story-bar').style.display = 'none';
+    // Sarı banner
+    const sidebar = document.getElementById('main-sidebar');
+    const banner = document.createElement('div');
+    banner.id = 'guest-banner';
+    banner.style.cssText = 'background:#b45309;color:#fff;font-size:12px;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0';
+    banner.innerHTML = `
+      <span>👤 Misafir · Sekme kapanınca tüm veriler silinir</span>
+      <a href="#/register" style="color:#fef08a;font-weight:600;white-space:nowrap;text-decoration:none">Kayıt ol →</a>
+    `;
+    sidebar.insertBefore(banner, sidebar.firstChild);
+  }
 
   // Logout
   document.getElementById('logout-btn').addEventListener('click', () => {
@@ -1189,10 +1222,10 @@ async function openConversation(convId) {
       <button class="scroll-fab hidden" id="scroll-fab" title="Aşağı git">${Icons.chevronDown}</button>
     </div>
     <div class="message-input-bar">
-      <label class="btn-icon" title="Dosya gönder" style="cursor:pointer">
+      ${Store.isGuest() ? '' : `<label class="btn-icon" title="Dosya gönder" style="cursor:pointer">
         ${Icons.paperclip}
         <input type="file" id="file-input" style="display:none" accept="image/*,video/*,.pdf,.doc,.docx" />
-      </label>
+      </label>`}
       <textarea class="message-input" id="msg-input" placeholder="Mesaj yaz..." rows="1"></textarea>
       <button class="btn-icon-primary" id="send-btn" title="Gönder">${Icons.send}</button>
     </div>
@@ -1223,7 +1256,7 @@ async function openConversation(convId) {
 
 
   // Dosya gönder
-  document.getElementById('file-input').addEventListener('change', async (e) => {
+  document.getElementById('file-input')?.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
