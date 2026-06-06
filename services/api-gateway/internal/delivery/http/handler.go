@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -579,10 +580,15 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 // ── Guest auth handler'ları ──────────────────────────────
 
 func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
+	log.Println("guest login isteği alındı")
+
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
 
 	// 4 rastgele byte → 8 hex karakter → guest_XXXXXXXX
 	b := make([]byte, 4)
@@ -608,8 +614,19 @@ func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
 		guestID, now.Unix(), ip)
 
 	if h.redis != nil {
-		if err := h.redis.Set("guest:"+guestID, guestData, 86400); err != nil {
-			log.Printf("Redis guest kayıt hatası: %v", err)
+		done := make(chan error, 1)
+		go func() { done <- h.redis.Set("guest:"+guestID, guestData, 86400) }()
+		select {
+		case err := <-done:
+			if err != nil {
+				log.Printf("Redis guest kayıt hatası: %v", err)
+				writeError(w, http.StatusServiceUnavailable, "oturum kaydedilemedi")
+				return
+			}
+		case <-ctx.Done():
+			log.Printf("Redis timeout: %v", ctx.Err())
+			writeError(w, http.StatusGatewayTimeout, "oturum kaydedilemedi")
+			return
 		}
 	}
 
