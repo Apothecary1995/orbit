@@ -27,10 +27,32 @@ func (c *Client) dial() (net.Conn, *bufio.Reader, error) {
 	r := bufio.NewReader(conn)
 	if c.password != "" {
 		fmt.Fprintf(conn, "*2\r\n$4\r\nAUTH\r\n$%d\r\n%s\r\n", len(c.password), c.password)
-		r.ReadString('\n')
-		r.ReadString('\n')
+		resp, err := r.ReadString('\n') // AUTH yanıtı tek satır: +OK veya -ERR
+		if err != nil {
+			conn.Close()
+			return nil, nil, fmt.Errorf("AUTH okuma hatası: %w", err)
+		}
+		if !strings.HasPrefix(resp, "+") {
+			conn.Close()
+			return nil, nil, fmt.Errorf("AUTH başarısız: %s", strings.TrimSpace(resp))
+		}
 	}
 	return conn, r, nil
+}
+
+// Ping sunucunun erişilebilir olup olmadığını kontrol eder.
+func (c *Client) Ping() (string, error) {
+	conn, r, err := c.dial()
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	fmt.Fprintf(conn, "*1\r\n$4\r\nPING\r\n")
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }
 
 // Set stores key=value with optional TTL in seconds (0 = no expiry).

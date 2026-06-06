@@ -614,6 +614,21 @@ func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
 		guestID, now.Unix(), ip)
 
 	if h.redis != nil {
+		// Bağlantı testi
+		pingDone := make(chan error, 1)
+		go func() {
+			pong, pingErr := h.redis.Ping()
+			log.Printf("Redis ping: %v, err: %v", pong, pingErr)
+			pingDone <- pingErr
+		}()
+		select {
+		case <-pingDone:
+		case <-ctx.Done():
+			log.Printf("Redis ping timeout: %v", ctx.Err())
+			writeError(w, http.StatusGatewayTimeout, "oturum kaydedilemedi")
+			return
+		}
+
 		done := make(chan error, 1)
 		go func() { done <- h.redis.Set("guest:"+guestID, guestData, 86400) }()
 		select {
