@@ -57,6 +57,7 @@ document.addEventListener('click', (e) => {
   // Logout — her yerden çalışır
   if (e.target.closest('#logout-btn')) {
     e.preventDefault();
+    if (Store.user?.guest) Api.guestLogout().catch(() => {});
     Socket.disconnect();
     Store.clearAuth();
     Router.navigate('login');
@@ -88,6 +89,14 @@ function renderLogin() {
           </button>
           <div id="login-error" class="hidden auth-error"></div>
         </form>
+        <div class="auth-divider" style="display:flex;align-items:center;gap:8px;margin:8px 0;color:var(--text-muted);font-size:12px">
+          <hr style="flex:1;border:none;border-top:1px solid var(--border-color)" />
+          veya
+          <hr style="flex:1;border:none;border-top:1px solid var(--border-color)" />
+        </div>
+        <button class="btn btn-ghost btn-full" id="guest-btn" style="font-size:14px">
+          Misafir olarak devam et
+        </button>
         <div class="auth-switch">
           Hesabın yok mu? <a href="#/register">Kayıt ol</a>
         </div>
@@ -117,6 +126,25 @@ function renderLogin() {
     } finally {
       btn.disabled = false;
       btn.textContent = 'Giriş yap';
+    }
+  });
+
+  document.getElementById('guest-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('guest-btn');
+    btn.disabled = true;
+    btn.textContent = 'Bağlanıyor...';
+    try {
+      const data = await Api.guestLogin();
+      Store.setAuth(
+        { id: data.guest_id, username: data.username, guest: true },
+        data.access_token,
+        ''
+      );
+      Socket.connect();
+      Router.navigate('chat');
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Misafir olarak devam et';
     }
   });
 }
@@ -1114,6 +1142,7 @@ function escHtml(str) {
 }
 
 async function openConversation(convId) {
+  clearSelection();
   Store.setActiveConv(convId);
   Store.resetUnread(convId);
   Socket.joinConv(convId);
@@ -1260,6 +1289,12 @@ async function openConversation(convId) {
   Socket.off('message_deleted', window._deleteHandler);
   window._deleteHandler = ({ message_id }) => applyMessageDelete(message_id);
   Socket.on('message_deleted', window._deleteHandler);
+
+  Socket.off('reaction_added', window._reactionHandler);
+  window._reactionHandler = ({ message_id, emoji }) => {
+    if (message_id && emoji) addReactionToMessage(message_id, emoji, null, true);
+  };
+  Socket.on('reaction_added', window._reactionHandler);
 
   // Mobil swipe: sağa kaydırınca sidebar aç
   if (window.innerWidth <= 768) {
@@ -1476,7 +1511,18 @@ function appendMessage(msg, isGrouped = false) {
     content = safeContent;
   }
 
-  // Reply preview — escape edildi
+  // Forwarded message detection
+  const FWD_PREFIX = '​↪​';
+  let isForwarded = false;
+  if (typeof content === 'string' && content.startsWith(FWD_PREFIX)) {
+    isForwarded = true;
+    content = content.slice(FWD_PREFIX.length);
+  }
+  const fwdHeader = isForwarded
+    ? '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;opacity:.8">↪ İletildi</div>'
+    : '';
+
+  // Reply preview
   let replyHTML = '';
   if (msg.reply_to_id && msg.reply_to_content) {
     replyHTML = `<div style="border-left:3px solid var(--color-primary);padding:4px 8px;margin-bottom:6px;font-size:12px;color:var(--text-secondary);border-radius:0 4px 4px 0;background:rgba(127,119,221,0.1)">${escHtml(msg.reply_to_content)}</div>`;
@@ -1488,40 +1534,73 @@ function appendMessage(msg, isGrouped = false) {
   el.dataset.content = msg.content;
   const contentHtml = msg.deleted
     ? '<em style="color:var(--text-muted)">Bu mesaj silindi.</em>'
-    : replyHTML + '<span class="msg-text">' + content + '</span>';
+    : fwdHeader + replyHTML + '<span class="msg-text">' + content + '</span>';
   el.innerHTML = contentHtml + '<span class="message-time">' + time + ' ' + statusIcon + (msg.edited_at ? ' <span style="font-size:10px;color:var(--text-muted)">(düzenlendi)</span>' : '') + '</span>';
 
-  // Emoji tepki butonu
-  const reactBar = document.createElement('div');
-  reactBar.style.cssText = 'display:none;position:absolute;' + (isSent ? 'left:-120px' : 'right:-120px') + ';top:0;background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:99px;padding:4px 8px;display:flex;gap:4px;font-size:16px;cursor:pointer;box-shadow:var(--shadow-sm)';
-  reactBar.innerHTML = ['👍','❤️','😂','😮','😢','🔥'].map(e =>
-    '<span class="emoji-btn" data-emoji="' + e + '" style="cursor:pointer;padding:2px 4px;border-radius:4px" onmouseover="this.style.background=\'var(--bg-overlay)\'" onmouseout="this.style.background=\'transparent\'">' + e + '</span>'
-  ).join('');
-
+  // Wrapper: column container
   const wrapper = document.createElement('div');
   wrapper.className = 'message' + (isGrouped ? ' message-grouped' : '');
   wrapper.dataset.id = msg.id;
-  wrapper.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:' + (isSent ? 'flex-end' : 'flex-start') + ';margin-bottom:' + (isGrouped ? '1px' : '6px');
-  wrapper.appendChild(el);
+  wrapper.style.cssText = 'position:relative;display:flex;flex-direction:column;margin-bottom:' + (isGrouped ? '1px' : '6px');
+
+  // Row: checkbox + bubble (side by side)
+  const rowEl = document.createElement('div');
+  rowEl.style.cssText = 'display:flex;flex-direction:row;align-items:flex-end;gap:6px;justify-content:' + (isSent ? 'flex-end' : 'flex-start');
+
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox';
+  checkbox.className = 'msg-checkbox';
+  checkbox.style.cssText = 'display:none;flex-shrink:0;width:16px;height:16px;margin-bottom:4px;cursor:pointer;accent-color:var(--color-primary)';
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) selectedMsgs.set(msg.id, msg);
+    else selectedMsgs.delete(msg.id);
+    updateSelectionBar();
+  });
+
+  if (isSent) {
+    rowEl.appendChild(checkbox);
+    rowEl.appendChild(el);
+  } else {
+    rowEl.appendChild(checkbox);
+    rowEl.appendChild(el);
+  }
+  wrapper.appendChild(rowEl);
 
   // Reactions display
   const reactionsEl = document.createElement('div');
   reactionsEl.className = 'msg-reactions';
   reactionsEl.dataset.msgId = msg.id;
   reactionsEl.id = 'reactions-' + msg.id;
-  reactionsEl.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;' + (isSent ? 'justify-content:flex-end' : '');
+  reactionsEl.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-top:2px;padding-left:22px;' + (isSent ? 'justify-content:flex-end;padding-left:0;padding-right:22px' : '');
+  if (msg.reactions && msg.reactions.length) {
+    const grouped = {};
+    msg.reactions.forEach(r => { grouped[r.emoji] = (grouped[r.emoji] || 0) + 1; });
+    Object.entries(grouped).forEach(([emoji, count]) => {
+      const span = document.createElement('span');
+      span.dataset.emoji = emoji;
+      span.dataset.count = count;
+      span.style.cssText = 'background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:99px;padding:2px 8px;font-size:12px;cursor:pointer;';
+      span.textContent = emoji + (count > 1 ? ' ' + count : '');
+      reactionsEl.appendChild(span);
+    });
+  }
   wrapper.appendChild(reactionsEl);
 
-  // "Görüldü" etiketi — sadece gönderilmiş mesajlarda, read_receipt gelince gösterilir
+  // "Görüldü" etiketi
   if (isSent) {
     const seenEl = document.createElement('div');
     seenEl.id = 'seen-' + msg.id;
     seenEl.className = 'msg-seen';
+    seenEl.style.cssText = 'text-align:right;padding-right:22px';
     seenEl.textContent = 'Görüldü';
     wrapper.appendChild(seenEl);
   }
 
   list.appendChild(wrapper);
+
+  // Hover: show checkbox
+  wrapper.addEventListener('mouseenter', () => { checkbox.style.display = 'inline-block'; });
+  wrapper.addEventListener('mouseleave', () => { if (!checkbox.checked && selectedMsgs.size === 0) checkbox.style.display = 'none'; });
 
   // Davet kartı "Sunucuya Katıl" butonu
   if (isInviteCard) {
@@ -1545,26 +1624,36 @@ function appendMessage(msg, isGrouped = false) {
     }
   }
 
-  // Scroll-to-bottom: kullanıcı yukarı kaydırmadıysa otomatik aşağı git
+  // Scroll-to-bottom
   const distFromBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
   if (distFromBottom < 200) {
     list.scrollTop = list.scrollHeight;
   }
 
-  // Son mesaj store'a kaydet (aktif konuşmada)
+  // Son mesaj store'a kaydet
   if (msg.conversation_id && !msg.id?.startsWith('temp-')) {
     Store.setLastMessage(msg.conversation_id, msg);
   }
 
+  // Context menu — sağ tık
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     showMessageMenu(e, msg, el);
   });
 
+  // Long press — mobil
+  let longPressTimer;
+  el.addEventListener('touchstart', (e) => {
+    longPressTimer = setTimeout(() => {
+      const touch = e.touches[0];
+      showMessageMenu({ clientX: touch.clientX, clientY: touch.clientY }, msg, el);
+    }, 500);
+  }, { passive: true });
+  el.addEventListener('touchend', () => clearTimeout(longPressTimer), { passive: true });
+  el.addEventListener('touchmove', () => clearTimeout(longPressTimer), { passive: true });
+
   if (!isSent && msg.id && !msg.id.startsWith('temp-')) {
-    // HTTP: DB'de okundu olarak işaretle
     Api.post('/chat/conversations/' + msg.conversation_id + '/messages/' + msg.id + '/read', {}).catch(() => {});
-    // WS: gönderenin tikini anında güncelle (hub.go → SendToUser)
     if (msg.sender_id) {
       Socket.send('read_receipt', { message_id: msg.id, sender_id: msg.sender_id });
     }
@@ -1601,10 +1690,9 @@ function showMessageMenu(e, msg, el) {
   const menu = document.createElement('div');
   menu.className = 'ctx-menu';
 
-  // Ekran sınırları içinde konumlandır
-  const x = Math.min(e.clientX, window.innerWidth - 180);
-  const y = Math.min(e.clientY, window.innerHeight - 200);
-  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px`;
+  const x = Math.min(e.clientX, window.innerWidth - 200);
+  const y = Math.min(e.clientY, window.innerHeight - 280);
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:9000`;
 
   const isMine = msg.sender_id === Store.user?.id;
   const emojis = ['👍','❤️','😂','😮','😢','🔥'];
@@ -1613,10 +1701,13 @@ function showMessageMenu(e, msg, el) {
     <div class="ctx-menu-section">
       ${emojis.map(em => `<span class="ctx-emoji-btn" data-emoji="${em}">${em}</span>`).join('')}
     </div>
-    <button class="ctx-menu-item" id="menu-reply">${Icons.cornerUpLeft} Yanıtla</button>
-    <button class="ctx-menu-item" id="menu-copy">${Icons.copy} Kopyala</button>
-    ${isMine && !msg.deleted ? `<button class="ctx-menu-item" id="menu-edit">${Icons.edit2} Düzenle</button>` : ''}
-    ${isMine && !msg.deleted ? `<button class="ctx-menu-item danger" id="menu-delete">${Icons.trash2} Sil</button>` : ''}
+    <button class="ctx-menu-item" id="menu-reply">↩️ Yanıtla</button>
+    <button class="ctx-menu-item" id="menu-copy">📋 Kopyala</button>
+    <button class="ctx-menu-item" id="menu-forward">➡️ İlet</button>
+    <button class="ctx-menu-item" id="menu-select">☑️ Seç</button>
+    ${isMine && !msg.deleted ? `<button class="ctx-menu-item" id="menu-edit">✏️ Düzenle</button>` : ''}
+    ${isMine && !msg.deleted ? `<button class="ctx-menu-item danger" id="menu-delete-all">🗑️ Herkesten Sil</button>` : ''}
+    ${!isMine && !msg.deleted ? `<button class="ctx-menu-item danger" id="menu-delete-me">🗑️ Sil (Sadece Benden)</button>` : ''}
   `;
 
   document.body.appendChild(menu);
@@ -1629,31 +1720,23 @@ function showMessageMenu(e, msg, el) {
     });
   });
 
-  // Yanıtla
-  document.getElementById('menu-reply')?.addEventListener('click', () => {
-    menu.remove();
-    setReplyTo(msg);
-  });
-
-  // Kopyala
-  document.getElementById('menu-copy')?.addEventListener('click', () => {
+  menu.querySelector('#menu-reply')?.addEventListener('click', () => { menu.remove(); setReplyTo(msg); });
+  menu.querySelector('#menu-copy')?.addEventListener('click', () => {
     menu.remove();
     navigator.clipboard.writeText(msg.content).catch(() => {});
   });
-
-  // Düzenle
-  document.getElementById('menu-edit')?.addEventListener('click', () => {
+  menu.querySelector('#menu-forward')?.addEventListener('click', () => { menu.remove(); showForwardModal([msg]); });
+  menu.querySelector('#menu-select')?.addEventListener('click', () => {
     menu.remove();
-    startEditMessage(msg);
+    selectedMsgs.set(msg.id, msg);
+    const cb = document.querySelector(`.message[data-id="${msg.id}"] .msg-checkbox`);
+    if (cb) { cb.checked = true; cb.style.display = 'inline-block'; }
+    updateSelectionBar();
   });
+  menu.querySelector('#menu-edit')?.addEventListener('click', () => { menu.remove(); startEditMessage(msg); });
+  menu.querySelector('#menu-delete-all')?.addEventListener('click', () => { menu.remove(); deleteMessage(msg); });
+  menu.querySelector('#menu-delete-me')?.addEventListener('click', () => { menu.remove(); deleteMessageLocally(msg.id); });
 
-  // Sil
-  document.getElementById('menu-delete')?.addEventListener('click', () => {
-    menu.remove();
-    deleteMessage(msg);
-  });
-
-  // Dışarı tıklayınca kapat
   setTimeout(() => {
     document.addEventListener('click', function closeMenu() {
       menu.remove();
@@ -1687,11 +1770,73 @@ function startEditMessage(msg) {
 }
 
 async function deleteMessage(msg) {
-  if (!confirm('Mesajı silmek istiyor musun?')) return;
+  if (!confirm('Bu mesajı herkesten silmek istiyor musun?')) return;
   const convId = msg.conversation_id;
   await Api.post(`/chat/conversations/${convId}/messages/${msg.id}/delete`, {}).catch(() => {});
-  // UI güncelle (WS eventi de gelecek ama local da uygula)
   applyMessageDelete(msg.id);
+}
+
+function deleteMessageLocally(msgId) {
+  const wrapper = document.querySelector(`.message[data-id="${msgId}"]`);
+  wrapper?.remove();
+}
+
+function showForwardModal(msgs) {
+  const existing = document.getElementById('forward-modal');
+  if (existing) existing.remove();
+
+  const convs = Store.conversations.filter(c => c.id !== Store.activeConvId);
+
+  const modal = document.createElement('div');
+  modal.id = 'forward-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9500;display:flex;align-items:center;justify-content:center';
+
+  const inner = document.createElement('div');
+  inner.style.cssText = 'background:var(--bg-surface);border:1px solid var(--border-color);border-radius:16px;padding:24px;width:100%;max-width:380px;max-height:80vh;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow-lg)';
+  inner.innerHTML = `
+    <h3 style="margin:0;font-size:16px">İlet</h3>
+    <input id="fwd-search" class="input" type="text" placeholder="Sohbet ara..." style="font-size:13px" />
+    <div id="fwd-list" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:4px;max-height:320px"></div>
+    <div style="display:flex;gap:8px">
+      <button id="fwd-cancel" class="btn" style="flex:1">İptal</button>
+    </div>
+  `;
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+
+  const listEl = inner.querySelector('#fwd-list');
+
+  function renderFwdList(filter = '') {
+    listEl.innerHTML = '';
+    const filtered = filter
+      ? convs.filter(c => (c.name || '').toLowerCase().includes(filter.toLowerCase()))
+      : convs;
+    if (!filtered.length) {
+      listEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:16px">Sohbet bulunamadı</div>';
+      return;
+    }
+    filtered.forEach(c => {
+      const item = document.createElement('button');
+      item.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:none;background:transparent;cursor:pointer;border-radius:8px;color:var(--text-primary);width:100%;text-align:left';
+      item.innerHTML = `<div class="avatar avatar-sm" style="flex-shrink:0">${escHtml((c.name || '?')[0].toUpperCase())}</div><span style="font-size:13px">${escHtml(c.name || 'Sohbet')}</span>`;
+      item.addEventListener('mouseenter', () => { item.style.background = 'var(--bg-elevated)'; });
+      item.addEventListener('mouseleave', () => { item.style.background = 'transparent'; });
+      item.addEventListener('click', async () => {
+        modal.remove();
+        const FWD_PREFIX = '​↪​';
+        for (const m of msgs) {
+          const fwdContent = FWD_PREFIX + (m.content || '');
+          await Api.sendMessage(c.id, fwdContent, m.type === 'image' ? 'image' : 'text').catch(() => {});
+        }
+      });
+      listEl.appendChild(item);
+    });
+  }
+
+  renderFwdList();
+  inner.querySelector('#fwd-search').addEventListener('input', (e) => renderFwdList(e.target.value));
+  inner.querySelector('#fwd-cancel').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 function applyMessageDelete(msgId) {
@@ -1715,7 +1860,7 @@ function applyMessageEdit(msgId, content, editedAt) {
   }
 }
 
-function addReactionToMessage(msgId, emoji, userId) {
+function addReactionToMessage(msgId, emoji, userId, fromServer = false) {
   const reactEl = document.getElementById('reactions-' + msgId);
   if (!reactEl) return;
 
@@ -1732,10 +1877,61 @@ function addReactionToMessage(msgId, emoji, userId) {
     span.textContent = emoji + ' 1';
     reactEl.appendChild(span);
   }
+
+  if (!fromServer) {
+    const convId = Store.activeConvId;
+    if (convId) Api.addReaction(convId, msgId, emoji).catch(() => {});
+  }
 }
 
 // Reply state
 let replyToMsg = null;
+
+// Message selection state
+const selectedMsgs = new Map(); // msgId → msg
+
+function updateSelectionBar() {
+  const count = selectedMsgs.size;
+  let bar = document.getElementById('selection-bar');
+  if (count === 0) {
+    bar?.remove();
+    document.querySelectorAll('.msg-checkbox').forEach(cb => { cb.checked = false; cb.style.display = 'none'; });
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'selection-bar';
+    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:var(--bg-elevated);border-top:1px solid var(--border-color);padding:10px 16px;display:flex;align-items:center;gap:12px;z-index:8000;box-shadow:0 -2px 12px rgba(0,0,0,.3)';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span style="flex:1;font-size:14px;color:var(--text-primary)">${count} mesaj seçildi</span>
+    <button id="sel-forward-btn" class="btn btn-ghost" style="font-size:13px">➡️ İlet</button>
+    <button id="sel-delete-btn" class="btn btn-danger" style="font-size:13px">🗑️ Sil</button>
+    <button id="sel-cancel-btn" class="btn" style="font-size:13px">İptal</button>
+  `;
+  bar.querySelector('#sel-cancel-btn').addEventListener('click', clearSelection);
+  bar.querySelector('#sel-delete-btn').addEventListener('click', async () => {
+    if (!confirm(count + ' mesajı herkesten silmek istiyor musun?')) return;
+    const ids = [...selectedMsgs.keys()];
+    const msgs = [...selectedMsgs.values()];
+    for (const m of msgs) {
+      await Api.post(`/chat/conversations/${m.conversation_id}/messages/${m.id}/delete`, {}).catch(() => {});
+      applyMessageDelete(m.id);
+    }
+    clearSelection();
+  });
+  bar.querySelector('#sel-forward-btn').addEventListener('click', () => {
+    showForwardModal([...selectedMsgs.values()]);
+  });
+  document.querySelectorAll('.msg-checkbox').forEach(cb => { cb.style.display = 'inline-block'; });
+}
+
+function clearSelection() {
+  selectedMsgs.clear();
+  document.querySelectorAll('.msg-checkbox').forEach(cb => { cb.checked = false; cb.style.display = 'none'; });
+  document.getElementById('selection-bar')?.remove();
+}
 
 function setReplyTo(msg) {
   replyToMsg = msg;
@@ -2074,6 +2270,21 @@ const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
 
@@ -2280,12 +2491,12 @@ function showCallModal(convId, type, isCaller) {
   } else {
     // Sesli / görüntülü arama
     callModal.innerHTML = `
-      <div style="position:relative;width:100%;max-width:640px;max-height:480px">
+      <div style="position:relative;width:100%;max-width:640px;">
         <video id="remote-video" autoplay playsinline
-               style="width:100%;border-radius:12px;background:#111"></video>
+               style="width:100%;min-height:360px;border-radius:12px;background:#111;object-fit:cover;display:block;"></video>
         <video id="local-video" autoplay playsinline muted style="
             position:absolute;bottom:12px;right:12px;
-            width:120px;border-radius:8px;background:#333;"></video>
+            width:120px;height:90px;border-radius:8px;background:#333;object-fit:cover;"></video>
       </div>
       <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;justify-content:center">
         <button onclick="toggleMute()" class="btn btn-ghost" id="mute-btn">🎤 Ses</button>

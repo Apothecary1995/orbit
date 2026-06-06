@@ -133,6 +133,10 @@ func (c *chatUsecase) RemoveReaction(ctx context.Context, messageID, userID, emo
 	return c.reactionRepo.Remove(ctx, messageID, userID, emoji)
 }
 
+func (c *chatUsecase) GetReactions(ctx context.Context, messageID string) ([]*entity.MessageReaction, error) {
+	return c.reactionRepo.ListByMessage(ctx, messageID)
+}
+
 func (c *chatUsecase) CreateConversation(ctx context.Context, input domainUsecase.CreateConversationInput) (*entity.Conversation, error) {
 	conv := &entity.Conversation{
 		ID:        generateID(),

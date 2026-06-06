@@ -15,18 +15,20 @@ import (
 type contextKey string
 
 const userIDKey contextKey = "userID"
+const guestKey contextKey = "isGuest"
 
 type jwtClaims struct {
 	Sub      string `json:"sub"`
 	DeviceID string `json:"device_id"`
+	Guest    bool   `json:"guest"`
 	Iat      int64  `json:"iat"`
 	Exp      int64  `json:"exp"`
 }
 
-func parseJWT(token, secret string) (string, error) {
+func parseJWTClaims(token, secret string) (*jwtClaims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return "", fmt.Errorf("geçersiz token formatı")
+		return nil, fmt.Errorf("geçersiz token formatı")
 	}
 
 	payload := parts[0] + "." + parts[1]
@@ -35,23 +37,31 @@ func parseJWT(token, secret string) (string, error) {
 	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 
 	if !hmac.Equal([]byte(expected), []byte(parts[2])) {
-		return "", fmt.Errorf("geçersiz imza")
+		return nil, fmt.Errorf("geçersiz imza")
 	}
 
 	claimsJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", fmt.Errorf("claims çözülemedi")
+		return nil, fmt.Errorf("claims çözülemedi")
 	}
 
 	var claims jwtClaims
 	if err := json.Unmarshal(claimsJSON, &claims); err != nil {
-		return "", fmt.Errorf("claims parse edilemedi")
+		return nil, fmt.Errorf("claims parse edilemedi")
 	}
 
 	if time.Now().Unix() > claims.Exp {
-		return "", fmt.Errorf("token süresi dolmuş")
+		return nil, fmt.Errorf("token süresi dolmuş")
 	}
 
+	return &claims, nil
+}
+
+func parseJWT(token, secret string) (string, error) {
+	claims, err := parseJWTClaims(token, secret)
+	if err != nil {
+		return "", err
+	}
 	return claims.Sub, nil
 }
 
@@ -64,19 +74,25 @@ func requireAuth(secret string, next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		userID, err := parseJWT(token, secret)
+		claims, err := parseJWTClaims(token, secret)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "geçersiz veya süresi dolmuş token")
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		ctx := context.WithValue(r.Context(), userIDKey, claims.Sub)
+		ctx = context.WithValue(ctx, guestKey, claims.Guest)
 		next(w, r.WithContext(ctx))
 	}
 }
 
 func userIDFromCtx(ctx context.Context) string {
 	v, _ := ctx.Value(userIDKey).(string)
+	return v
+}
+
+func isGuestFromCtx(ctx context.Context) bool {
+	v, _ := ctx.Value(guestKey).(bool)
 	return v
 }
 

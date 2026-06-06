@@ -11,6 +11,7 @@ service ChatService {
   rpc GetMembers(GetMembersRequest)                 returns (GetMembersResponse);
   rpc EditMessage(EditMessageRequest)               returns (EditMessageResponse);
   rpc DeleteMessage(DeleteMessageRequest)           returns (DeleteMessageResponse);
+  rpc AddReaction(AddReactionRequest)               returns (AddReactionResponse);
   rpc CreateStory(CreateStoryRequest)               returns (CreateStoryResponse);
   rpc GetStories(GetStoriesRequest)                 returns (GetStoriesResponse);
 
@@ -54,11 +55,17 @@ message GetConversationsResponse   { repeated Conversation conversations = 1; }
 message GetMembersRequest          { string conversation_id = 1; }
 message GetMembersResponse         { repeated string member_ids = 1; }
 
+message Reaction {
+  string emoji   = 1;
+  string user_id = 2;
+}
+
 message Message {
   string id = 1; string conversation_id = 2; string sender_id = 3;
   string type = 4; string content = 5; string status = 6;
   string reply_to_id = 7; string created_at = 8;
   string edited_at = 9; bool deleted = 10;
+  repeated Reaction reactions = 11;
 }
 message Story {
   string id = 1; string user_id = 2; string type = 3;
@@ -70,10 +77,12 @@ message CreateStoryResponse  { Story story = 1; }
 message GetStoriesRequest    { repeated string user_ids = 1; }
 message GetStoriesResponse   { repeated Story stories = 1; }
 
-message EditMessageRequest   { string message_id = 1; string user_id = 2; string content = 3; }
-message EditMessageResponse  { bool success = 1; string edited_at = 2; }
-message DeleteMessageRequest { string message_id = 1; string user_id = 2; }
-message DeleteMessageResponse{ bool success = 1; }
+message EditMessageRequest    { string message_id = 1; string user_id = 2; string content = 3; }
+message EditMessageResponse   { bool success = 1; string edited_at = 2; }
+message DeleteMessageRequest  { string message_id = 1; string user_id = 2; }
+message DeleteMessageResponse { bool success = 1; }
+message AddReactionRequest    { string message_id = 1; string user_id = 2; string emoji = 3; }
+message AddReactionResponse   { bool success = 1; }
 
 message Conversation {
   string id = 1; string type = 2; string name = 3;

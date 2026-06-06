@@ -13,6 +13,7 @@ import (
 	httphandler "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/http"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
+	redisclient "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/infrastructure/redis"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
 )
 
@@ -49,7 +50,9 @@ func main() {
 		log.Println("friends DB bağlantısı kuruldu")
 	}
 
-	handler := httphandler.NewHandler(clients, hub, &cfg, friendsDB)
+	rc := redisclient.NewClient(cfg.Redis.Addr, cfg.Redis.Password)
+
+	handler := httphandler.NewHandler(clients, hub, &cfg, friendsDB, rc)
 	handler.RegisterRoutes(mux)
 	mux.HandleFunc("/ws", hub.ServeWS)
 

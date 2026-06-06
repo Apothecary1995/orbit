@@ -2,7 +2,10 @@ package http
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,6 +23,7 @@ import (
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/delivery/websocket"
 	"github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/grpcclient"
 	pushpkg "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/push"
+	redisclient "github.com/Apothecary1995/cengsta-paradise/services/api-gateway/internal/infrastructure/redis"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -47,15 +51,17 @@ type Handler struct {
 	jwtSecret  string
 	minioURL   string
 	friendsDB  *pgxpool.Pool // nil = friends feature disabled
+	redis      *redisclient.Client
 }
 
-func NewHandler(clients *grpcclient.Clients, hub *websocket.Hub, cfg *config.Config, friendsDB *pgxpool.Pool) *Handler {
+func NewHandler(clients *grpcclient.Clients, hub *websocket.Hub, cfg *config.Config, friendsDB *pgxpool.Pool, rc *redisclient.Client) *Handler {
 	return &Handler{
 		clients:   clients,
 		hub:       hub,
 		jwtSecret: cfg.JWT.Secret,
 		minioURL:  cfg.MinioPublicURL,
 		friendsDB: friendsDB,
+		redis:     rc,
 	}
 }
 
@@ -70,6 +76,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/register", h.register)
 	mux.HandleFunc("/api/v1/auth/login", h.login)
 	mux.HandleFunc("/api/v1/auth/refresh", h.refresh)
+	mux.HandleFunc("/api/v1/auth/guest", h.guestLogin)
+	mux.HandleFunc("/api/v1/auth/guest/logout", auth(h.guestLogout))
 	mux.HandleFunc("/api/v1/notifications/vapid-public-key", h.vapidPublicKey)
 
 	// Protected auth endpoint'leri
@@ -438,6 +446,30 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 				"message_id": msgID,
 			})
 			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+		case "react":
+			var req struct {
+				Emoji string `json:"emoji"`
+			}
+			json.NewDecoder(r.Body).Decode(&req)
+			if req.Emoji == "" {
+				writeError(w, http.StatusBadRequest, "emoji zorunlu")
+				return
+			}
+			_, err := h.clients.ChatService.AddReaction(r.Context(), &chatpb.AddReactionRequest{
+				MessageId: msgID,
+				UserId:    userID,
+				Emoji:     req.Emoji,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "tepki eklenemedi")
+				return
+			}
+			h.hub.BroadcastTypedToConv(convID, "reaction_added", map[string]interface{}{
+				"message_id": msgID,
+				"user_id":    userID,
+				"emoji":      req.Emoji,
+			})
+			writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 		default:
 			writeError(w, http.StatusNotFound, "bulunamadı")
 		}
@@ -478,6 +510,30 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 		if !validMsgTypes[req.Type] {
 			req.Type = "text"
 		}
+
+		// Misafir mesajları DB'ye yazılmaz — sadece broadcast
+		if isGuestFromCtx(r.Context()) {
+			b := make([]byte, 16)
+			rand.Read(b)
+			msgID := hex.EncodeToString(b)
+			now := time.Now().Format(time.RFC3339)
+			h.hub.BroadcastToConv(convID, map[string]interface{}{
+				"id":              msgID,
+				"conversation_id": convID,
+				"sender_id":       userID,
+				"content":         req.Content,
+				"type":            req.Type,
+				"reply_to_id":     req.ReplyToID,
+				"status":          "sent",
+				"created_at":      now,
+			})
+			writeJSON(w, http.StatusCreated, map[string]interface{}{
+				"message_id": msgID,
+				"created_at": now,
+			})
+			return
+		}
+
 		resp, err := h.clients.ChatService.SendMessage(r.Context(), &chatpb.SendMessageRequest{
 			ConversationId: convID,
 			SenderId:       userID, // JWT'den
@@ -490,7 +546,7 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Konuşma üyelerini hub'a kaydet — geç gelen join_conv'dan bağımsız anlık iletim sağlar
+		// Konuşma üyelerini hub'a kaydet
 		if mResp, mErr := h.clients.ChatService.GetMembers(r.Context(), &chatpb.GetMembersRequest{
 			ConversationId: convID,
 		}); mErr == nil && mResp != nil && len(mResp.MemberIds) > 0 {
@@ -516,6 +572,69 @@ func (h *Handler) conversationDetail(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "desteklenmiyor")
 	}
+}
+
+// ── Guest auth handler'ları ──────────────────────────────
+
+func (h *Handler) guestLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
+		return
+	}
+	var req struct {
+		GuestID string `json:"guest_id"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	if req.GuestID == "" || !strings.HasPrefix(req.GuestID, "Misafir_") {
+		b := make([]byte, 2)
+		rand.Read(b)
+		req.GuestID = fmt.Sprintf("Misafir_%04d", int(b[0])<<8|int(b[1])&0x270F%10000)
+	}
+
+	guestData := fmt.Sprintf(`{"username":%q,"guest":true}`, req.GuestID)
+	if h.redis != nil {
+		if err := h.redis.Set("guest:"+req.GuestID, guestData, 28800); err != nil {
+			log.Printf("Redis guest kayıt hatası: %v", err)
+		}
+	}
+
+	token, err := createGuestJWT(req.GuestID, h.jwtSecret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "token oluşturulamadı")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"access_token": token,
+		"guest_id":     req.GuestID,
+		"username":     req.GuestID,
+	})
+}
+
+func (h *Handler) guestLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "sadece POST")
+		return
+	}
+	userID := userIDFromCtx(r.Context())
+	if h.redis != nil {
+		h.redis.Del("guest:" + userID)
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+func createGuestJWT(guestID, secret string) (string, error) {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	now := time.Now()
+	claimsJSON := fmt.Sprintf(`{"sub":%q,"username":%q,"guest":true,"iat":%d,"exp":%d}`,
+		guestID, guestID, now.Unix(), now.Add(8*time.Hour).Unix())
+	payload := base64.RawURLEncoding.EncodeToString([]byte(claimsJSON))
+	sigInput := header + "." + payload
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(sigInput))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return sigInput + "." + sig, nil
 }
 
 // ── Yardımcılar ──────────────────────────────────────────
@@ -590,14 +709,38 @@ func (h *Handler) searchUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "q parametresi zorunlu")
 		return
 	}
-	resp, err := h.clients.AuthService.SearchUser(r.Context(), &authpb.SearchUserRequest{Query: q})
-	if err != nil {
+
+	type userResult struct {
+		Id       string `json:"id"`
+		Username string `json:"username"`
+		Guest    bool   `json:"guest,omitempty"`
+	}
+	var results []*userResult
+
+	// PostgreSQL araması
+	if resp, err := h.clients.AuthService.SearchUser(r.Context(), &authpb.SearchUserRequest{Query: q}); err == nil {
+		for _, u := range resp.Users {
+			results = append(results, &userResult{Id: u.Id, Username: u.Username})
+		}
+	}
+
+	// Redis'ten misafir kullanıcıları ara
+	if h.redis != nil {
+		keys, _ := h.redis.Keys("guest:*")
+		qLower := strings.ToLower(q)
+		for _, key := range keys {
+			guestID := strings.TrimPrefix(key, "guest:")
+			if strings.Contains(strings.ToLower(guestID), qLower) {
+				results = append(results, &userResult{Id: guestID, Username: guestID, Guest: true})
+			}
+		}
+	}
+
+	if len(results) == 0 {
 		writeError(w, http.StatusNotFound, "kullanıcı bulunamadı")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"users": resp.Users,
-	})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"users": results})
 }
 
 func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {

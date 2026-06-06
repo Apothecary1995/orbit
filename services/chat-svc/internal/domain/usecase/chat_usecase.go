@@ -34,6 +34,7 @@ type ChatUsecase interface {
 	DeleteMessage(ctx context.Context, messageID, userID string) error
 	AddReaction(ctx context.Context, messageID, userID, emoji string) error
 	RemoveReaction(ctx context.Context, messageID, userID, emoji string) error
+	GetReactions(ctx context.Context, messageID string) ([]*entity.MessageReaction, error)
 
 	// Sohbet işlemleri
 	CreateConversation(ctx context.Context, input CreateConversationInput) (*entity.Conversation, error)

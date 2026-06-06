@@ -92,6 +92,14 @@ const Api = {
     return this.post('/auth/logout', { session_id: sessionId });
   },
 
+  async guestLogin(guestId = '') {
+    return this._request('POST', '/auth/guest', { guest_id: guestId }, false);
+  },
+
+  async guestLogout() {
+    return this.post('/auth/guest/logout', {});
+  },
+
   // ── Chat endpoint'leri ─────────────────────────────────
   async getConversations() {
   const userId = Store.user ? Store.user.id : null;
@@ -110,6 +118,10 @@ const Api = {
       reply_to_id: replyToId,
       // sender_id backend'de JWT'den alınır
     });
+  },
+
+  async addReaction(convId, msgId, emoji) {
+    return this.post(`/chat/conversations/${convId}/messages/${msgId}/react`, { emoji });
   },
 
   async createConversation(memberIds, type = 'direct', name = '') {

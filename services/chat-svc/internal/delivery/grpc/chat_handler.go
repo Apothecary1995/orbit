@@ -56,7 +56,7 @@ func (h *ChatHandler) GetHistory(ctx context.Context, req *pb.GetHistoryRequest)
 
 	var pbMsgs []*pb.Message
 	for _, m := range msgs {
-		pbMsgs = append(pbMsgs, &pb.Message{
+		pbMsg := &pb.Message{
 			Id:             m.ID,
 			ConversationId: m.ConversationID,
 			SenderId:       m.SenderID,
@@ -65,10 +65,34 @@ func (h *ChatHandler) GetHistory(ctx context.Context, req *pb.GetHistoryRequest)
 			Status:         string(m.Status),
 			ReplyToId:      m.ReplyToID,
 			CreatedAt:      m.CreatedAt.Format(time.RFC3339),
-		})
+		}
+		if m.EditedAt != nil {
+			pbMsg.EditedAt = m.EditedAt.Format(time.RFC3339)
+		}
+		if m.DeletedAt != nil {
+			pbMsg.Deleted = true
+		}
+		reactions, _ := h.chatUC.GetReactions(ctx, m.ID)
+		for _, r := range reactions {
+			pbMsg.Reactions = append(pbMsg.Reactions, &pb.Reaction{
+				Emoji:  r.Emoji,
+				UserId: r.UserID,
+			})
+		}
+		pbMsgs = append(pbMsgs, pbMsg)
 	}
 
 	return &pb.GetHistoryResponse{Messages: pbMsgs}, nil
+}
+
+func (h *ChatHandler) AddReaction(ctx context.Context, req *pb.AddReactionRequest) (*pb.AddReactionResponse, error) {
+	if req.MessageId == "" || req.UserId == "" || req.Emoji == "" {
+		return nil, status.Error(codes.InvalidArgument, "message_id, user_id ve emoji zorunlu")
+	}
+	if err := h.chatUC.AddReaction(ctx, req.MessageId, req.UserId, req.Emoji); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &pb.AddReactionResponse{Success: true}, nil
 }
 
 func (h *ChatHandler) GetConversations(ctx context.Context, req *pb.GetConversationsRequest) (*pb.GetConversationsResponse, error) {
